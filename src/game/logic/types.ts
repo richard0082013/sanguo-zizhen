@@ -18,6 +18,9 @@ export interface TileState {
   level: number;
   position: GridPosition | null;
   generalId?: string;
+  weapon?: 'fire' | 'ice' | 'thunder' | 'poison';
+  lastWeaponTime?: number;
+  buffUntil?: number;
   lastAttackTime: number;
   attackSpeedBuff: number;
   damageBuff: number;
@@ -45,6 +48,9 @@ export interface EnemyState {
   lastAbilityTime: number;
   isSlowed: boolean;
   slowedUntil: number;
+  poisonedUntil?: number;
+  poisonDamage?: number;
+  frozenUntil?: number;
   isBurning: boolean;
   burnDamage: number;
   burnUntil: number;
@@ -111,7 +117,8 @@ export type GameEvent =
   | { type: 'TILE_PLACED'; tileId: string; position: GridPosition; isOpponent: boolean }
   | { type: 'TILES_MERGED'; tile1Id: string; tile2Id: string; newTileId: string; isOpponent: boolean }
   | { type: 'GENERAL_ACTIVATED'; generalId: string; tileIds: string[]; isOpponent: boolean }
-  | { type: 'GENERAL_SKILL_USED'; generalId: string; isOpponent: boolean }
+  | { type: 'GENERAL_SKILL_USED'; generalId: string; isOpponent: boolean; position: Position; targets: Position[] }
+  | { type: 'WEAPON_USED'; weapon: NonNullable<TileState['weapon']>; tileId: string; isOpponent: boolean; position: Position; targets: Position[] }
   | { type: 'CELL_UNLOCKED'; position: GridPosition; isOpponent: boolean }
   | { type: 'WAVE_STARTED'; waveNumber: number }
   | { type: 'WAVE_COMPLETED'; waveNumber: number }

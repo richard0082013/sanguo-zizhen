@@ -46,6 +46,15 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Strengthen the ink without tinting the icon's light paper background.
+    for (const type of ['sword', 'spear', 'bow', 'cavalry', 'shovel']) {
+      const source = this.textures.get('icon_' + type).getSourceImage() as HTMLImageElement;
+      const canvas = this.textures.createCanvas('ink_' + type, source.width, source.height)!;
+      const ctx = canvas.getContext();
+      ctx.filter = 'contrast(1.8)';
+      ctx.drawImage(source, 0, 0);
+      canvas.refresh();
+    }
     this.scene.start('GameScene');
   }
 }

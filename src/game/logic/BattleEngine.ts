@@ -10,6 +10,7 @@ import {
   SHOVEL_CONFIG,
   MAX_TILE_LEVEL,
   getTileDamage,
+  getTileRange,
   getTileAttackSpeed,
 } from '../config/tiles';
 import type { TileType } from '../config/tiles';
@@ -178,7 +179,7 @@ export class BattleEngine {
       damage: config.damage,
       rangedResist: config.rangedResist,
       meleeResist: config.meleeResist,
-      reward: config.reward,
+      reward: config.reward + Math.min(2, Math.floor((this.state.currentWave - 1) / 3)),
       color: config.color,
       isBoss: false,
       lastAbilityTime: 0,
@@ -251,6 +252,7 @@ export class BattleEngine {
         enemy.isSlowed = false;
       }
 
+      if (enemy.poisonedUntil && now < enemy.poisonedUntil) enemy.health -= (enemy.poisonDamage || 0) * deltaTime / 1000;
       if (enemy.isBurning) {
         if (now >= enemy.burnUntil) {
           enemy.isBurning = false;
@@ -272,7 +274,7 @@ export class BattleEngine {
         return;
       }
 
-      const speedMultiplier = enemy.isSlowed ? 0.5 : 1;
+      const speedMultiplier = (enemy.frozenUntil || 0) > now ? 0 : enemy.isSlowed ? 0.5 : 1;
       const moveDistance = enemy.speed * speedMultiplier * (deltaTime / 1000);
 
       this.moveEnemyAlongPath(enemy, moveDistance, pathCells, isOpponent);
@@ -375,7 +377,22 @@ export class BattleEngine {
       }
 
       if (tile.isStunned) return;
-      if (tile.type === 'shovel' || tile.type === 'general') return;
+      if (tile.buffUntil && now >= tile.buffUntil) { tile.attackSpeedBuff = 0; tile.damageBuff = 0; }
+      if (tile.type === 'shovel' || (tile.type === 'general' && !tile.generalId)) return;
+      if (tile.type === 'general') {
+        if (now - tile.lastAttackTime >= 850) {
+          const from = this.gridToWorld(tile.position, isOpponent);
+          const target = this.findTarget(from, getTileRange(tile.type, tile.generalId), enemies);
+          if (target) { tile.lastAttackTime = now; target.health -= 48; this.emit({type:'TILE_ATTACK', tileId:tile.id, targetId:target.id, damage:48, isRanged:true, isOpponent, fromPos:from, toPos:{...target.position}, tileType:tile.type, level:5}); }
+        }
+        return;
+      }
+      if (tile.weapon && now - (tile.lastWeaponTime || 0) >= 5500 && enemies.length) {
+        tile.lastWeaponTime = now;
+        const targets = enemies.filter(e => e.health > 0).slice(0, tile.weapon === 'thunder' ? 4 : 9);
+        this.applyWeaponEffect(tile, targets);
+        this.emit({type:'WEAPON_USED', weapon:tile.weapon, tileId:tile.id, isOpponent, position:this.gridToWorld(tile.position,isOpponent), targets:targets.map(e=>({...e.position}))});
+      }
 
       const config = TILE_CONFIGS[tile.type];
       const attackSpeed = getTileAttackSpeed(tile.type, tile.level) * (1 - tile.attackSpeedBuff);
@@ -383,7 +400,7 @@ export class BattleEngine {
       if (now - tile.lastAttackTime < attackSpeed) return;
 
       const tilePos = this.gridToWorld(tile.position, isOpponent);
-      const range = config.attackRange * (1 + (tile.level - 1) * 0.15);
+      const range = getTileRange(tile.type);
       const target = this.findTarget(tilePos, range, enemies);
 
       if (!target) return;
@@ -502,7 +519,9 @@ export class BattleEngine {
     const now = this.state.gameTime;
 
     player.activeGenerals.forEach((ag) => {
-      if (!ag.isActive) return;
+      if (!ag.isActive || !enemies.some(e=>e.health > 0)) return;
+      const caster = player.tiles.find(t=>t.id===ag.tileIds[0]);
+      if (!caster?.position || caster.isStunned) return;
 
       const general = GENERALS.find((g) => g.id === ag.generalId);
       if (!general || general.cooldown === 0) return;
@@ -511,7 +530,7 @@ export class BattleEngine {
 
       ag.lastSkillTime = now;
       this.useGeneralSkill(general, ag, player, enemies, isOpponent);
-      this.emit({ type: 'GENERAL_SKILL_USED', generalId: ag.generalId, isOpponent });
+      this.emit({ type: 'GENERAL_SKILL_USED', generalId: ag.generalId, isOpponent, position:this.gridToWorld(caster.position,isOpponent), targets:enemies.slice(0,9).map(e=>({...e.position})) });
     });
   }
 
@@ -528,11 +547,17 @@ export class BattleEngine {
     const tilePos = this.gridToWorld(firstTile.position, isOpponent);
     const effect = general.skillEffect;
 
+    if (general.id === 'zhugeliang') { enemies.slice(0,6).forEach(e=>{ e.health -= 110; e.isSlowed=true; e.slowedUntil=this.state.gameTime+2000; }); return; }
+    if (general.id === 'huangzhong') { enemies.slice(0,8).forEach(e=>e.health-=80); return; }
     switch (effect.type) {
+      case 'summon':
+        enemies.slice(0,5).forEach(e=>e.health -= 85);
+        player.tiles.filter(t=>t.position).forEach(t=>{t.damageBuff=0.35;t.buffUntil=this.state.gameTime+3500;});
+        break;
       case 'damage':
         if (effect.piercing) {
           enemies.forEach((e) => {
-            if (Math.abs(e.position.y - tilePos.y) < 50) {
+            if (this.distance(e.position, tilePos) < 260) {
               e.health -= effect.damage || 0;
             }
           });
@@ -542,14 +567,16 @@ export class BattleEngine {
               e.health -= effect.damage || 0;
             }
           });
+        } else {
+          const target = this.findTarget(tilePos, general.attackRange, enemies);
+          if (target) target.health -= effect.damage || 0;
         }
         break;
 
       case 'stun':
         enemies.forEach((e) => {
           if (this.distance(e.position, tilePos) <= (effect.radius || 100)) {
-            e.isSlowed = true;
-            e.slowedUntil = this.state.gameTime + (effect.duration || 1000);
+            e.frozenUntil = this.state.gameTime + (effect.duration || 1000);
           }
         });
         break;
@@ -569,6 +596,7 @@ export class BattleEngine {
           if (this.distance(pos, tilePos) <= (effect.radius || 80)) {
             if (effect.buffType === 'attackSpeed') {
               tile.attackSpeedBuff = effect.buffValue || 0;
+              tile.buffUntil = this.state.gameTime + (effect.duration || 4000);
             }
           }
         });
@@ -577,7 +605,7 @@ export class BattleEngine {
       case 'burn':
         enemies.forEach((e) => {
           if (general.id === 'zhouyu' || this.distance(e.position, tilePos) <= (effect.radius || 60)) {
-            // The dragon's initial impact lands before its lingering burn.
+            // Fire attack applies an initial impact and lingering burn.
             e.health -= (effect.damage || 30) * 2;
             e.isBurning = true;
             e.burnDamage = effect.damage || 30;
@@ -616,13 +644,27 @@ export class BattleEngine {
             opponent.holdingSlots[pendingSlotIndex] = null;
             opponent.tiles = opponent.tiles.filter((t) => t.id !== tile.id);
           } else {
-            const cell = this.opponentRng.pick(emptyCells);
+            const range = getTileRange(tile.type, tile.generalId);
+            const coverage = (c: CellState) => GAME_CONFIG.pathCells.filter(p => Math.hypot(p.row-c.position.row,p.col-c.position.col)*GAME_CONFIG.cellSize <= range).length;
+            emptyCells.sort((a,b)=>coverage(b)-coverage(a)||b.position.col-a.position.col);
+            const cell = emptyCells[0];
             const success = this.placeTile(tile.id, cell.position, true);
             if (success) {
               opponent.holdingSlots[pendingSlotIndex] = null;
             }
           }
         }
+      }
+    }
+
+    // Activate completed names immediately instead of waiting for a full board.
+    const letters = opponent.tiles.filter(t => t.position && t.type === 'general' && !t.generalId);
+    for (const incoming of letters) {
+      const destination = letters.find(t => t.id !== incoming.id &&
+        GENERALS.some(g => g.name.startsWith(t.char + incoming.char)));
+      if (destination) {
+        this.mergeTiles(incoming.id, destination.id, true);
+        return;
       }
     }
 
@@ -663,6 +705,8 @@ export class BattleEngine {
 
     if (playerDone && opponentDone && noMoreSpawns) {
       this.state.isWaveActive = false;
+      this.state.player.buns += GAME_CONFIG.waveClearBonus;
+      this.state.opponent.buns += GAME_CONFIG.waveClearBonus;
       this.emit({ type: 'WAVE_COMPLETED', waveNumber: this.state.currentWave });
 
       if (this.state.currentWave < WAVES.length) {
@@ -763,22 +807,13 @@ export class BattleEngine {
     }
 
     if (selectedType === 'general') {
-      char = rng.pick(this.generalChars);
+      const partners = player.tiles.filter(t=>t.position && t.type==='general' && !t.generalId)
+        .flatMap(t=>GENERALS.filter(g=>g.name.startsWith(t.char) && g.name.length>t.char.length).map(g=>g.name[t.char.length]));
+      char = partners.length && rng.next() < GAME_CONFIG.namePartnerChance ? rng.pick(partners) : rng.pick(this.generalChars);
     } else if (selectedType === 'shovel') {
       char = SHOVEL_CONFIG.char;
     } else {
       char = TILE_CONFIGS[selectedType].char;
-    }
-
-    // A useful opening pair teaches name completion within the initial budget.
-    if (player.recruitCount <= 2) {
-      selectedType = 'general';
-      char = player.recruitCount === 1 ? '周' : '瑜';
-    }
-
-    if (player.recruitCount === 3 || player.recruitCount === 4) {
-      selectedType = 'bow';
-      char = '弓';
     }
 
     const tile: TileState = {
@@ -794,6 +829,10 @@ export class BattleEngine {
       stunnedUntil: 0,
     };
 
+    if (selectedType === 'spear' && rng.next() < GAME_CONFIG.weaponRecruitChance) {
+      tile.weapon = rng.pick(['fire', 'ice', 'thunder', 'poison'] as const);
+
+    }
     player.tiles.push(tile);
     player.holdingSlots[emptySlotIndex] = tile;
 
@@ -805,7 +844,10 @@ export class BattleEngine {
   discardTile(tileId: string, isOpponent = false): boolean {
     const player = isOpponent ? this.state.opponent : this.state.player;
     const tile = player.tiles.find(t => t.id === tileId);
-    if (!tile || tile.position) return false;
+    if (!tile) return false;
+    player.cells.forEach(c => { if (c.tileId === tileId) c.tileId = null; });
+    player.activeGenerals = player.activeGenerals.filter(g => !g.tileIds.includes(tileId));
+    if (tile.type !== 'shovel') player.buns += Math.floor(GAME_CONFIG.baseRecruitCost * Math.pow(2, tile.level - 1) * 0.4);
     player.holdingSlots = player.holdingSlots.map(t => t?.id === tileId ? null : t);
     player.tiles = player.tiles.filter(t => t.id !== tileId);
     return true;
@@ -816,10 +858,7 @@ export class BattleEngine {
     const shovel = player.holdingSlots.find(t => t?.id === shovelId && t.type === 'shovel');
     const target = player.tiles.find(t => t.id === targetId && t.position);
     if (!shovel || !target) return false;
-    player.cells.forEach(c => { if (c.tileId === targetId) c.tileId = null; });
-    player.buns = Math.min(GAME_CONFIG.bunsCapacity, player.buns + GAME_CONFIG.baseRecruitCost * target.level);
-    player.tiles = player.tiles.filter(t => t.id !== targetId);
-    player.activeGenerals = player.activeGenerals.filter(g => !g.tileIds.includes(targetId));
+    this.discardTile(targetId);
     return this.discardTile(shovelId);
   }
 
@@ -852,7 +891,7 @@ export class BattleEngine {
 
     this.emit({ type: 'TILE_PLACED', tileId, position, isOpponent });
 
-    this.checkGeneralActivation(player, isOpponent);
+
 
     return true;
   }
@@ -864,6 +903,7 @@ export class BattleEngine {
     const tile2 = player.tiles.find((t) => t.id === tile2Id);
 
     if (!tile1 || !tile2 || tile1Id === tile2Id) return null;
+    if (tile1.type === 'general' && tile2.type === 'general') return this.combineName(tile1, tile2, player, isOpponent);
     if (tile1.type !== tile2.type) return null;
     if (tile1.char !== tile2.char) return null;
     if (tile1.level !== tile2.level) return null;
@@ -876,6 +916,7 @@ export class BattleEngine {
       level: tile1.level + 1,
       position: tile2.position || tile1.position,
       generalId: tile1.generalId,
+      weapon: tile1.weapon || tile2.weapon,
       lastAttackTime: 0,
       attackSpeedBuff: 0,
       damageBuff: 0,
@@ -916,51 +957,37 @@ export class BattleEngine {
     return newTile;
   }
 
-  private checkGeneralActivation(player: PlayerState, isOpponent: boolean): void {
-    const placedGeneralTiles = player.tiles.filter(
-      (t) => t.type === 'general' && t.position !== null
-    );
+  canCombineNames(first: TileState, second: TileState): boolean {
+    return first.type === 'general' && second.type === 'general' && !first.generalId && !second.generalId && GENERALS.some(g=>g.name.startsWith(second.char + first.char));
+  }
 
-    for (const general of GENERALS) {
-      const existingActivation = player.activeGenerals.find((ag) => ag.generalId === general.id);
-      if (existingActivation?.isActive) continue;
+  private combineName(first: TileState, second: TileState, player: PlayerState, isOpponent: boolean): TileState | null {
+    if (!this.canCombineNames(first,second) || !second.position) return null;
+    const name = second.char + first.char;
+    const general = GENERALS.find(g=>g.name === name);
+    const tile: TileState = {...second, id:`tile_${this.nextTileId++}`, char:name, generalId:general?.id, level:general ? 5 : 1};
+    player.cells.forEach(c=>{if(c.tileId===first.id || c.tileId===second.id)c.tileId=null;});
+    player.cells.find(c=>c.position.row===tile.position!.row && c.position.col===tile.position!.col)!.tileId=tile.id;
+    player.tiles=player.tiles.filter(t=>t.id!==first.id && t.id!==second.id);
+    player.holdingSlots=player.holdingSlots.map(t=>t?.id===first.id || t?.id===second.id ? null:t);
+    player.tiles.push(tile);
+    this.emit({type:'TILES_MERGED',tile1Id:first.id,tile2Id:second.id,newTileId:tile.id,isOpponent});
+    if(general){
+      player.activeGenerals.push({generalId:general.id,tileIds:[tile.id],lastSkillTime:this.state.gameTime-general.cooldown+1800,isActive:true});
+      this.emit({type:'GENERAL_ACTIVATED',generalId:general.id,tileIds:[tile.id],isOpponent});
+    }
+    return tile;
+  }
 
-      const matchingTiles: TileState[] = [];
-      let matched = true;
+  private checkGeneralActivation(_player: PlayerState, _isOpponent: boolean): void {}
 
-      for (const char of general.chars) {
-        const tile = placedGeneralTiles.find(
-          (t) =>
-            t.char === char &&
-            !matchingTiles.includes(t) &&
-            !player.activeGenerals.some((ag) => ag.isActive && ag.tileIds.includes(t.id))
-        );
-        if (tile) {
-          matchingTiles.push(tile);
-        } else {
-          matched = false;
-          break;
-        }
-      }
-
-      if (matched && matchingTiles.length === general.chars.length) {
-        const activation: ActiveGeneralState = {
-          generalId: general.id,
-          tileIds: matchingTiles.map((t) => t.id),
-          lastSkillTime: 0,
-          isActive: true,
-        };
-
-        matchingTiles.forEach((t) => (t.generalId = general.id));
-        player.activeGenerals.push(activation);
-
-        this.emit({
-          type: 'GENERAL_ACTIVATED',
-          generalId: general.id,
-          tileIds: activation.tileIds,
-          isOpponent,
-        });
-      }
+  applyWeaponEffect(tile: TileState, targets: EnemyState[]): void {
+    const now=this.state.gameTime;
+    for(const [i,e] of targets.entries()) {
+      if(tile.weapon==='fire'){e.health-=45*tile.level;e.isBurning=true;e.burnDamage=18*tile.level;e.burnUntil=now+3500;}
+      if(tile.weapon==='ice'){e.health-=20*tile.level;e.isSlowed=true;e.slowedUntil=now+3500;}
+      if(tile.weapon==='thunder') e.health-=70*tile.level*Math.pow(0.8,i);
+      if(tile.weapon==='poison'){e.poisonDamage=24*tile.level;e.poisonedUntil=now+4500;}
     }
   }
 

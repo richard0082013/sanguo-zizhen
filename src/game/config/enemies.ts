@@ -27,12 +27,12 @@ export const ENEMIES: Record<EnemyType, EnemyConfig> = {
     type: 'infantry',
     name: '步兵',
     char: '兵',
-    health: 100,
+    health: 40,
     speed: 64,
     damage: 1,
     rangedResist: 0,
     meleeResist: 0,
-    reward: 2,
+    reward: 3,
     color: '#8B4513',
   },
   cavalry: {
@@ -44,7 +44,7 @@ export const ENEMIES: Record<EnemyType, EnemyConfig> = {
     damage: 1,
     rangedResist: 0,
     meleeResist: 0,
-    reward: 2,
+    reward: 3,
     color: '#4169E1',
   },
   shield: {
@@ -56,7 +56,7 @@ export const ENEMIES: Record<EnemyType, EnemyConfig> = {
     damage: 1,
     rangedResist: 0.5,
     meleeResist: 0,
-    reward: 2,
+    reward: 3,
     color: '#708090',
   },
   mage: {
