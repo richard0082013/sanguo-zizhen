@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { BattleEngine } from '../logic/BattleEngine';
 import { GAME_CONFIG } from '../config/gameConfig';
-import { TILE_CONFIGS, SHOVEL_CONFIG } from '../config/tiles';
+import { TILE_CONFIGS, SHOVEL_CONFIG, getTileRange } from '../config/tiles';
 import { GENERALS } from '../config/generals';
 import { VFXManager } from '../vfx/VFXManager';
 import { TextureGenerator } from '../vfx/TextureGenerator';
@@ -601,7 +601,7 @@ export class GameScene extends Phaser.Scene {
   private startGame(): void {
     this.phase = 'playing';
     this.startScreen.setVisible(false);
-    this.engine = new BattleEngine(Date.now());
+    this.engine = new BattleEngine(Number(new URLSearchParams(location.search).get('seed')) || Date.now());
     this.engine.addEventListener((event: GameEvent) => this.handleGameEvent(event));
 
     this.showAnnouncement('布阵！征兵迎敌');
@@ -799,15 +799,16 @@ export class GameScene extends Phaser.Scene {
     }
     bg.lineStyle(7, color, 0.22).strokeRoundedRect(-size/2, -size/2, size, size, 5);
     bg.lineStyle(2, color).strokeRoundedRect(-size/2, -size/2, size, size, 5);
+    if (tile.generalId) bg.lineStyle(4, 0xffd368).strokeRoundedRect(-size/2,-size/2,size,size,5);
     container.add(bg);
-    const general = tile.type === 'general' ? GENERALS.find(g => g.chars.includes(tile.char)) : undefined;
+    const general = tile.generalId ? GENERALS.find(g=>g.id===tile.generalId) : undefined;
     const key = general ? 'general_' + general.id : 'icon_' + tile.type;
     if (this.textures.exists(key)) {
       const icon = this.add.image(0, -2 * scale, key).setDisplaySize(size * 0.86, size * 0.86);
       if (!general) icon.setBlendMode(Phaser.BlendModes.MULTIPLY);
       container.add(icon);
     }
-    const badge = this.add.rectangle(-size/2 + 9*scale, -size/2 + 10*scale, 17*scale, 19*scale, 0xf4e6c4, 0.95);
+    const badge = this.add.rectangle(tile.generalId ? 0 : -size/2 + 9*scale, tile.generalId ? 14 : -size/2 + 10*scale, tile.generalId ? size-4 : 17*scale, 19*scale, 0xf4e6c4, 0.95);
     container.add(badge);
     const charText = this.add.text(badge.x, badge.y, tile.char, {
       fontFamily: GAME_CONFIG.typography.brush, fontSize: `${15*scale}px`, color: '#302319',
@@ -952,22 +953,18 @@ export class GameScene extends Phaser.Scene {
         this.showResult(event.winner);
         break;
 
+      case 'WEAPON_USED':
+        this.vfx.weaponEffect(event.weapon,event.position,event.targets,this.getPathWorldPositions(event.isOpponent));
+        break;
       case 'GENERAL_SKILL_USED':
-        this.vfx.generalSkillEffect(event.generalId, this.getPathWorldPositions(event.isOpponent)[0], this.getPathWorldPositions(event.isOpponent));
+        this.vfx.generalSkillEffect(event.generalId,event.position,event.targets);
         break;
-
-      case 'GENERAL_ACTIVATED':
-        if (!event.isOpponent) {
-          const general = GENERALS.find((g) => g.id === event.generalId);
-          if (general) {
-            this.showAnnouncement(`${general.name}激活！`);
-            const pathPoints = this.getPathWorldPositions(false);
-            const centerX = GAME_CONFIG.playerGridStartX + (GAME_CONFIG.gridCols * GAME_CONFIG.cellSize) / 2;
-            const centerY = GAME_CONFIG.playerGridStartY + (GAME_CONFIG.gridRows * GAME_CONFIG.cellSize) / 2;
-            this.vfx.generalSkillEffect(event.generalId, { x: centerX, y: centerY }, pathPoints);
-          }
-        }
+      case 'GENERAL_ACTIVATED': {
+        const player=event.isOpponent ? this.engine.getState().opponent:this.engine.getState().player;
+        const tile=player.tiles.find(t=>t.id===event.tileIds[0]);
+        if(tile?.position) this.vfx.generalReveal(event.generalId,this.getTileWorldPosition(tile.position,event.isOpponent));
         break;
+      }
     }
   }
 
@@ -1211,6 +1208,19 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private showRange(tile: TileState, x: number, y: number): void {
+    const radius = getTileRange(tile.type, tile.generalId);
+    if (!radius) return;
+    this.children.getByName('rangePreview')?.destroy();
+    const ring = this.add.graphics().setPosition(x, y).setDepth(590).setName('rangePreview');
+    ring.fillStyle(0x90e4d7, 0.10).fillCircle(0, 0, radius);
+    for (let i = 6; i >= 1; i--) {
+      ring.lineStyle(i * 2, 0xa5f7df, 0.035).strokeCircle(0, 0, radius);
+    }
+    ring.lineStyle(1.2, 0xc5ffec, 0.55).strokeCircle(0, 0, radius);
+    this.tweens.add({targets: ring, alpha: 0, delay: 650, duration: 650, onComplete: () => ring.destroy()});
+  }
+
   private onPointerDown(pointer: Phaser.Input.Pointer): void {
     if (this.phase !== 'playing') return;
 
@@ -1227,6 +1237,7 @@ export class GameScene extends Phaser.Scene {
 
       const bounds = new Phaser.Geom.Rectangle(slotContainer.x - 25, slotContainer.y - 25, 50, 50);
       if (bounds.contains(pointer.x, pointer.y)) {
+        this.showRange(tile, sprite.container.x, sprite.container.y);
         this.draggingTile = sprite;
         this.dragOrigin = { x: sprite.container.x, y: sprite.container.y };
         this.tweens.killTweensOf(sprite.container);
@@ -1252,6 +1263,7 @@ export class GameScene extends Phaser.Scene {
 
       const bounds = sprite.container.getBounds();
       if (bounds.contains(pointer.x, pointer.y)) {
+        this.showRange(tile, sprite.container.x, sprite.container.y);
         this.draggingTile = sprite;
         this.dragOrigin = { x: sprite.container.x, y: sprite.container.y };
         this.tweens.killTweensOf(sprite.container);
@@ -1383,10 +1395,10 @@ export class GameScene extends Phaser.Scene {
           state.player.holdingSlots.find((t) => t?.id === this.draggingTile!.id);
 
         if (existingTile && draggingTileData &&
-          existingTile.char === draggingTileData.char &&
+          (this.engine.canCombineNames(draggingTileData,existingTile) || (existingTile.char === draggingTileData.char &&
           existingTile.type === draggingTileData.type &&
           existingTile.level === draggingTileData.level &&
-          existingTile.level < 5 &&
+          existingTile.level < 5)) &&
           existingTile.id !== draggingTileData.id) {
 
           const success = this.engine.mergeTiles(draggingTileData.id, existingTile.id, false);

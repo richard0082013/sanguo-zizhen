@@ -9,11 +9,12 @@ export interface GeneralConfig {
   skillName: string;
   skillDescription: string;
   cooldown: number;
+  attackRange: number;
   skillEffect: GeneralSkillEffect;
 }
 
 export interface GeneralSkillEffect {
-  type: 'damage' | 'stun' | 'buff' | 'economy' | 'aoe' | 'burn' | 'taunt';
+  type: 'damage' | 'stun' | 'buff' | 'economy' | 'aoe' | 'burn' | 'taunt' | 'summon';
   damage?: number;
   duration?: number;
   radius?: number;
@@ -26,6 +27,7 @@ export interface GeneralSkillEffect {
 export const GENERALS: GeneralConfig[] = [
   {
     id: 'zhaoyun',
+    attackRange: 110,
     name: '赵云',
     chars: ['赵', '云'],
     faction: 'shu',
@@ -41,6 +43,7 @@ export const GENERALS: GeneralConfig[] = [
   },
   {
     id: 'zhangfei',
+    attackRange: 90,
     name: '张飞',
     chars: ['张', '飞'],
     faction: 'shu',
@@ -56,6 +59,7 @@ export const GENERALS: GeneralConfig[] = [
   },
   {
     id: 'guanyu',
+    attackRange: 100,
     name: '关羽',
     chars: ['关', '羽'],
     faction: 'shu',
@@ -71,6 +75,7 @@ export const GENERALS: GeneralConfig[] = [
   },
   {
     id: 'huangzhong',
+    attackRange: 240,
     name: '黄忠',
     chars: ['黄', '忠'],
     faction: 'shu',
@@ -85,6 +90,7 @@ export const GENERALS: GeneralConfig[] = [
   },
   {
     id: 'liubei',
+    attackRange: 105,
     name: '刘备',
     chars: ['刘', '备'],
     faction: 'shu',
@@ -102,12 +108,13 @@ export const GENERALS: GeneralConfig[] = [
   },
   {
     id: 'zhugeliang',
+    attackRange: 220,
     name: '诸葛亮',
     chars: ['诸', '葛', '亮'],
     faction: 'shu',
     role: 'mage',
     skillName: '借东风',
-    skillDescription: '路径段落持续火焰',
+    skillDescription: '东风雷阵连锁轰击',
     cooldown: 10000,
     skillEffect: {
       type: 'burn',
@@ -118,20 +125,23 @@ export const GENERALS: GeneralConfig[] = [
   },
   {
     id: 'caocao',
+    attackRange: 140,
     name: '曹操',
     chars: ['曹', '操'],
     faction: 'wei',
     role: 'economy',
-    skillName: '挟天子',
-    skillDescription: '每波额外获得馒头',
-    cooldown: 0,
+    skillName: '虎豹援军',
+    skillDescription: '召唤虎豹骑突击敌军',
+    cooldown: 8500,
     skillEffect: {
-      type: 'economy',
+      type: 'summon',
+      damage: 85,
       bonusBuns: 5,
     },
   },
   {
     id: 'dianwei',
+    attackRange: 80,
     name: '典韦',
     chars: ['典', '韦'],
     faction: 'wei',
@@ -147,13 +157,14 @@ export const GENERALS: GeneralConfig[] = [
   },
   {
     id: 'xiahoudun',
+    attackRange: 85,
     name: '夏侯惇',
     chars: ['夏', '侯', '惇'],
     faction: 'wei',
     role: 'counter',
     skillName: '拔矢啖睛',
     skillDescription: '被控时免疫并反伤',
-    cooldown: 0,
+    cooldown: 8500,
     skillEffect: {
       type: 'damage',
       damage: 100,
@@ -161,6 +172,7 @@ export const GENERALS: GeneralConfig[] = [
   },
   {
     id: 'zhouyu',
+    attackRange: 200,
     name: '周瑜',
     chars: ['周', '瑜'],
     faction: 'wu',
@@ -177,13 +189,14 @@ export const GENERALS: GeneralConfig[] = [
   },
   {
     id: 'sunshangxiang',
+    attackRange: 230,
     name: '孙尚香',
     chars: ['孙', '尚', '香'],
     faction: 'wu',
     role: 'ranged',
     skillName: '弓腰姬',
     skillDescription: '攻速随连击递增',
-    cooldown: 0,
+    cooldown: 8500,
     skillEffect: {
       type: 'buff',
       buffType: 'attackSpeed',
@@ -192,6 +205,7 @@ export const GENERALS: GeneralConfig[] = [
   },
   {
     id: 'lvbu',
+    attackRange: 115,
     name: '吕布',
     chars: ['吕', '布'],
     faction: 'qun',

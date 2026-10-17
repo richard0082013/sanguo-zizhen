@@ -98,12 +98,13 @@ export const GAME_CONFIG = {
 
   holdingSlots: 5,
 
+  // Two opening recruits cost 10 + 12; a third needs earned income.
   initialBuns: 30,
   bunsCapacity: 149,
   incomePerSecond: 18,
   baseRecruitCost: 10,
   recruitCostIncrement: 2,
-  maxRecruitCost: Number.POSITIVE_INFINITY,
+  maxRecruitCost: 28,
 
   adouLives: 3,
 
@@ -115,16 +116,16 @@ export const GAME_CONFIG = {
     spear: 25,
     bow: 20,
     cavalry: 15,
-    general: 10,
+    general: 35,
     shovel: 1,
   },
 
   levelColors: {
-    1: '#b88346',
+    1: '#e8e5d9',
     2: '#7cb342',
     3: '#42a5f5',
     4: '#ab47bc',
-    5: '#ff9800',
+    5: '#ffd15b',
   },
 
   levelBorderColors: {

@@ -60,7 +60,8 @@ describe('early battle pacing', () => {
     const startX = enemy.position.x;
     engine.update(1000);
     expect(enemy.position.x).toBeLessThan(startX - 20);
-    engine.update(20000);
+    const travelTime = (GAME_CONFIG.pathCells.length - 1) * GAME_CONFIG.cellSize / enemy.speed * 1000;
+    engine.update(travelTime);
     expect(engine.getState().enemies.some(e => e.id === enemy.id)).toBe(false);
     expect(engine.getState().player.adouLives).toBeLessThan(3);
   });
@@ -70,7 +71,7 @@ describe('early battle pacing', () => {
     for (let i = 0; i < 800; i++) engine.update(50);
     const { player, opponent } = engine.getState();
     expect(opponent.tiles.filter(t => t.position).length).toBeGreaterThanOrEqual(15);
-    expect(opponent.recruitCost).toBe(10 + opponent.recruitCount * 2);
+    expect(opponent.recruitCost).toBe(Math.min(GAME_CONFIG.maxRecruitCost,10 + opponent.recruitCount * 2));
     expect(player.buns).toBeLessThan(150);
     expect(opponent.buns).toBeLessThan(150);
   });
@@ -82,7 +83,7 @@ describe('shared enemy schedule', () => {
     const engine = new BattleEngine(42);
     engine.getState().opponent.buns = 0;
     engine.startNextWave();
-    for (let i = 0; i < 80; i++) engine.update(100);
+    for (let i = 0; i < 80; i++) { engine.getState().opponent.buns = 0; engine.update(100); }
     const { enemies, opponentEnemies } = engine.getState();
     expect(enemies).toHaveLength(12);
     expect(opponentEnemies).toHaveLength(12);

@@ -1,3 +1,4 @@
+import { GENERALS } from './generals';
 export type TileType = 'sword' | 'spear' | 'bow' | 'cavalry' | 'general' | 'shovel';
 
 export interface TileConfig {
@@ -17,7 +18,7 @@ export const TILE_CONFIGS: Record<Exclude<TileType, 'general' | 'shovel'>, TileC
     char: '刀',
     name: '刀兵',
     color: '#CD5C5C',
-    attackRange: 80,
+    attackRange: 60,
     attackSpeed: 1000,
     baseDamage: 15,
     isRanged: false,
@@ -27,7 +28,7 @@ export const TILE_CONFIGS: Record<Exclude<TileType, 'general' | 'shovel'>, TileC
     char: '枪',
     name: '枪兵',
     color: '#4682B4',
-    attackRange: 70,
+    attackRange: 110,
     attackSpeed: 1200,
     baseDamage: 18,
     isRanged: false,
@@ -76,4 +77,10 @@ export function getTileAttackSpeed(
   level: number
 ): number {
   return Math.floor(TILE_CONFIGS[type].attackSpeed / (1 + (level - 1) * 0.1));
+}
+
+// Range stays tied to the weapon class at every soldier tier.
+export function getTileRange(type: TileType, generalId?: string): number {
+  if (type === 'general') return GENERALS.find(g => g.id === generalId)?.attackRange ?? 0;
+  return type === 'shovel' ? 0 : TILE_CONFIGS[type].attackRange;
 }

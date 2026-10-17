@@ -288,7 +288,7 @@ describe('BattleEngine', () => {
   });
 
   describe('General Activation', () => {
-    it('should activate general when all name characters are placed', () => {
+    it('should activate general when name characters are merged', () => {
       const state = engine.getState();
 
       const zhaoTile = {
@@ -322,6 +322,7 @@ describe('BattleEngine', () => {
       engine.placeTile(zhaoTile.id, { col: 0, row: 0 }, false);
       engine.placeTile(yunTile.id, { col: 1, row: 0 }, false);
 
+      if (state.player.tiles.some(t=>t.id==='yun_tile')) engine.mergeTiles('yun_tile','zhao_tile',false);
       const updatedState = engine.getState();
       const zhaoyunActivation = updatedState.player.activeGenerals.find(
         (ag) => ag.generalId === 'zhaoyun'
@@ -329,8 +330,8 @@ describe('BattleEngine', () => {
 
       expect(zhaoyunActivation).toBeDefined();
       expect(zhaoyunActivation!.isActive).toBe(true);
-      expect(zhaoyunActivation!.tileIds).toContain('zhao_tile');
-      expect(zhaoyunActivation!.tileIds).toContain('yun_tile');
+      expect(zhaoyunActivation!.tileIds).toHaveLength(1);
+      expect(updatedState.player.tiles[0].char).toBe('赵云');
     });
 
     it('should not activate general with only partial name', () => {
@@ -412,6 +413,8 @@ describe('BattleEngine', () => {
       engine.placeTile(geTile.id, emptyCells[1].position, false);
       engine.placeTile(liangTile.id, emptyCells[2].position, false);
 
+      const partial=engine.mergeTiles(geTile.id,zhuTile.id,false)!;
+      engine.mergeTiles(liangTile.id,partial.id,false);
       const updatedState = engine.getState();
       const zhugeliangActivation = updatedState.player.activeGenerals.find(
         (ag) => ag.generalId === 'zhugeliang'
