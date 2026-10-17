@@ -92,7 +92,6 @@ export class GameScene extends Phaser.Scene {
       myTiles: () => this.engine.getState().player.tiles.filter(t => t.position).map(t => ({
         id: t.id, row: t.position!.row, col: t.position!.col, type: t.type, char: t.char, level: t.level,
       })),
-      setGold: (amount: number) => { const state = this.engine.getState(); state.player.buns = amount; state.opponent.buns = amount; },
       placeableCells: () => this.engine.getState().player.cells.filter(c => !c.isPath).map(c => ({ ...c.position })),
       state: () => JSON.parse(JSON.stringify(this.engine.getState())),
       slotPos: (i) => cssPosition(this.holdingSlotContainers[i]),
@@ -470,6 +469,8 @@ export class GameScene extends Phaser.Scene {
       this.holdingSlotContainers.push(slotContainer);
     }
 
+    this.add.text(405, hudY + 30, '弃置', { fontSize: '16px', color: '#e9bc86', backgroundColor: '#57392c', padding: { x: 6, y: 10 } }).setOrigin(0.5).setDepth(52);
+    this.add.text(225, hudY + 64, '铲 → 棋子：回收包子  ·  拖至右侧弃置', { fontSize: '12px', color: '#d6b98b' }).setOrigin(0.5).setDepth(52);
     this.recruitButton = this.add.container(GAME_CONFIG.canvasWidth / 2, hudY + 92);
     this.recruitButton.setDepth(51);
 
@@ -503,7 +504,7 @@ export class GameScene extends Phaser.Scene {
     this.recruitButton.setInteractive({ useHandCursor: true });
     this.recruitButton.on('pointerdown', () => this.onRecruitClicked());
 
-    this.waveText = this.add.text(GAME_CONFIG.canvasWidth - 10, hudY + 5, '第1波', {
+    this.waveText = this.add.text(GAME_CONFIG.canvasWidth - 10, hudY + 85, '第1波', {
       fontFamily: GAME_CONFIG.typography.brush,
       fontSize: '18px',
       color: '#a09080',
@@ -642,7 +643,7 @@ export class GameScene extends Phaser.Scene {
 
       const worldPos = this.getEnemyWorldPosition(enemy, isOpponent);
       const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : 1;
-      const size = (enemy.isBoss ? 64 : 40) * scale;
+      const size = (enemy.isBoss ? 64 : 28) * scale;
 
       const bobOffset = Math.sin(this.time.now * 0.008 + enemy.pathIndex * 2) * 3;
       const squash = 1 + Math.sin(this.time.now * 0.01 + enemy.pathIndex) * 0.05;
@@ -672,7 +673,7 @@ export class GameScene extends Phaser.Scene {
     container.setDepth(100);
 
     const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : 1;
-    const size = (enemy.isBoss ? 64 : 40) * scale;
+    const size = (enemy.isBoss ? 64 : 28) * scale;
 
     const enemyTextureMap: Record<string, string> = {
       soldier: 'enemy_soldier',
@@ -788,59 +789,31 @@ export class GameScene extends Phaser.Scene {
     const container = this.add.container(0, 0);
     container.setDepth(100);
 
-    const tileTextures: Record<number, string> = {
-      1: 'tile_white',
-      2: 'tile_green',
-      3: 'tile_blue',
-      4: 'tile_purple',
-      5: 'tile_gold',
-    };
-
-    const textureKey = tileTextures[tile.level] || 'tile_white';
-    const isGeneral = tile.type === 'general' && tile.generalId;
-
-    if (this.textures.exists(textureKey)) {
-      const tileImg = this.add.image(0, 0, isGeneral ? 'tile_general_frame' : textureKey);
-      tileImg.setDisplaySize(size, size);
-      container.add(tileImg);
-
-      if (isGeneral) {
-        const generalKey = `general_${tile.generalId}`;
-        if (this.textures.exists(generalKey)) {
-          const portrait = this.add.image(0, -4, generalKey);
-          portrait.setDisplaySize(size * 0.7, size * 0.7);
-          container.add(portrait);
-        }
-      }
-    } else {
-      const bg = this.add.graphics();
-      bg.fillStyle(0xf8f4e8);
-      bg.fillRoundedRect(-size / 2, -size / 2, size, size, 4);
-      bg.lineStyle(2, 0xc8c0b0);
-      bg.strokeRoundedRect(-size / 2, -size / 2, size, size, 4);
-      container.add(bg);
+    const color = Phaser.Display.Color.HexStringToColor(GAME_CONFIG.levelColors[tile.level as keyof typeof GAME_CONFIG.levelColors]).color;
+    const bg = this.add.graphics();
+    for (let y = 0; y < size; y++) {
+      const shade = Math.round(248 - y / size * 35);
+      bg.fillStyle(Phaser.Display.Color.GetColor(shade, shade - 12, shade - 37));
+      bg.fillRect(-size / 2, -size / 2 + y, size, 1);
     }
-
-    const charText = this.add.text(0, isGeneral ? 12 : 0, tile.char, {
-      fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: `${isGeneral ? 14 : 24}px`,
-      color: '#1a1a1a',
-      stroke: '#fff',
-      strokeThickness: 2,
-    });
-    charText.setOrigin(0.5);
+    bg.lineStyle(7, color, 0.22).strokeRoundedRect(-size/2, -size/2, size, size, 5);
+    bg.lineStyle(2, color).strokeRoundedRect(-size/2, -size/2, size, size, 5);
+    container.add(bg);
+    const general = tile.type === 'general' ? GENERALS.find(g => g.chars.includes(tile.char)) : undefined;
+    const key = general ? 'general_' + general.id : 'icon_' + tile.type;
+    if (this.textures.exists(key)) {
+      const icon = this.add.image(0, -2 * scale, key).setDisplaySize(size * 0.86, size * 0.86);
+      if (!general) icon.setBlendMode(Phaser.BlendModes.MULTIPLY);
+      container.add(icon);
+    }
+    const badge = this.add.rectangle(-size/2 + 9*scale, -size/2 + 10*scale, 17*scale, 19*scale, 0xf4e6c4, 0.95);
+    container.add(badge);
+    const charText = this.add.text(badge.x, badge.y, tile.char, {
+      fontFamily: GAME_CONFIG.typography.brush, fontSize: `${15*scale}px`, color: '#302319',
+    }).setOrigin(0.5);
     container.add(charText);
-
-    if (tile.level > 1 && !isGeneral) {
-      const levelText = this.add.text(size / 2 - 4, size / 2 - 4, `${tile.level}`, {
-        fontFamily: GAME_CONFIG.typography.ui,
-        fontSize: `${10 * scale}px`,
-        color: '#fff',
-        stroke: '#000',
-        strokeThickness: 2,
-      });
-      levelText.setOrigin(1, 1);
-      container.add(levelText);
+    for (let i = 0; i < tile.level; i++) {
+      container.add(this.add.circle((i-(tile.level-1)/2)*7*scale, size/2-5*scale, 2.3*scale, color));
     }
 
     container.setSize(size, size);
@@ -1370,6 +1343,19 @@ export class GameScene extends Phaser.Scene {
 
     const gridPos = this.screenToGrid(pointer.x, pointer.y);
     const state = this.engine.getState();
+
+    const dragged = state.player.tiles.find(t => t.id === this.draggingTile!.id);
+    const target = gridPos && state.player.tiles.find(t => t.position?.row === gridPos.row && t.position?.col === gridPos.col);
+    const removed = dragged && (
+      (pointer.x > 375 && pointer.y > this.holdingSlotContainers[0].y - 30 && pointer.y < this.holdingSlotContainers[0].y + 35 && this.engine.discardTile(dragged.id)) ||
+      (dragged.type === 'shovel' && target && this.engine.useShovel(dragged.id, target.id)));
+    if (removed) {
+      this.draggingTile.container.destroy();
+      this.tileSprites.delete(this.draggingTile.id);
+      this.draggingTile = null;
+      this.dragOrigin = null;
+      return;
+    }
 
     if (gridPos) {
       const cell = state.player.cells.find(

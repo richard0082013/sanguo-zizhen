@@ -111,6 +111,8 @@ export const GAME_CONFIG = {
   holdingSlots: 5,
 
   initialBuns: 30,
+  bunsCapacity: 149,
+  incomePerSecond: 18,
   baseRecruitCost: 10,
   recruitCostIncrement: 2,
   maxRecruitCost: Number.POSITIVE_INFINITY,
@@ -126,11 +128,11 @@ export const GAME_CONFIG = {
     bow: 20,
     cavalry: 15,
     general: 10,
-    shovel: 5,
+    shovel: 1,
   },
 
   levelColors: {
-    1: '#f5f5f0',
+    1: '#b88346',
     2: '#7cb342',
     3: '#42a5f5',
     4: '#ab47bc',

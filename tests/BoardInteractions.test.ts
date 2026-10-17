@@ -3,7 +3,6 @@ import { BattleEngine } from '../src/game/logic/BattleEngine';
 
 function setup() {
   const engine = new BattleEngine(42);
-  engine.getState().player.buns = 1000;
   const first = engine.recruit(false)!;
   const second = engine.recruit(false)!;
   Object.assign(first, { type: 'bow', char: '弓' });
@@ -65,12 +64,14 @@ describe('early battle pacing', () => {
     expect(engine.getState().player.adouLives).toBeLessThan(3);
   });
 
-  it('limits early AI recruiting by the same rising costs', () => {
+  it('funds a populated AI board with rising costs and bounded savings', () => {
     const engine = new BattleEngine(42);
-    for(let i = 0; i < 240; i++) engine.update(50);
-    expect(engine.getState().opponent.recruitCount).toBe(3);
-    expect(engine.getState().opponent.recruitCost).toBe(16);
-    expect(engine.getState().opponent.tiles.filter(t => t.position).length).toBeLessThanOrEqual(3);
+    for (let i = 0; i < 800; i++) engine.update(50);
+    const { player, opponent } = engine.getState();
+    expect(opponent.tiles.filter(t => t.position).length).toBeGreaterThanOrEqual(15);
+    expect(opponent.recruitCost).toBe(10 + opponent.recruitCount * 2);
+    expect(player.buns).toBeLessThan(150);
+    expect(opponent.buns).toBeLessThan(150);
   });
 });
 
@@ -92,8 +93,9 @@ describe('shared enemy schedule', () => {
       expect(other.position.x).toBeCloseTo(enemy.position.x);
       expect(other.position.y).toBeCloseTo(enemy.position.y - 350);
     });
+    const opponentHealth = opponentEnemies[0].health;
     enemies[0].health = 1;
-    expect(opponentEnemies[0].health).toBe(100);
+    expect(opponentEnemies[0].health).toBe(opponentHealth);
   });
 
   it('rejects road placement on both boards', () => {
@@ -102,5 +104,25 @@ describe('shared enemy schedule', () => {
       const tile = engine.recruit(opponent)!;
       expect(engine.placeTile(tile.id, { row: 1, col: 6 }, opponent)).toBe(false);
     }
+  });
+});
+
+describe('holding slot cleanup', () => {
+  it('consumes a shovel, removes its target, and refunds its level value', () => {
+    const { engine, first, second, player } = setup();
+    engine.placeTile(first.id, { row: 0, col: 0 }, false);
+    Object.assign(second, { type: 'shovel', char: '铲' });
+    const before = player.buns;
+    expect(engine.useShovel(second.id, first.id)).toBe(true);
+    expect(player.buns).toBe(before + 10);
+    expect(player.tiles).toHaveLength(0);
+    expect(player.holdingSlots.every(t => t === null)).toBe(true);
+    expect(player.cells.find(c => c.position.row === 0 && c.position.col === 0)?.tileId).toBeNull();
+  });
+  it('discards a holding tile but protects placed tiles', () => {
+    const { engine, first, second } = setup();
+    engine.placeTile(first.id, { row: 0, col: 0 }, false);
+    expect(engine.discardTile(first.id)).toBe(false);
+    expect(engine.discardTile(second.id)).toBe(true);
   });
 });

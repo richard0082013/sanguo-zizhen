@@ -28,7 +28,7 @@ export const ENEMIES: Record<EnemyType, EnemyConfig> = {
     name: '步兵',
     char: '兵',
     health: 100,
-    speed: 40,
+    speed: 64,
     damage: 1,
     rangedResist: 0,
     meleeResist: 0,

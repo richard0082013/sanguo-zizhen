@@ -120,8 +120,8 @@ export class BattleEngine {
     this.state.gameTime += deltaTime;
 
     if (this.state.gameTime >= this.nextIncomeTime) {
-      this.state.player.buns += 1;
-      this.state.opponent.buns += 1;
+      this.state.player.buns = Math.min(GAME_CONFIG.bunsCapacity, this.state.player.buns + GAME_CONFIG.incomePerSecond);
+      this.state.opponent.buns = Math.min(GAME_CONFIG.bunsCapacity, this.state.opponent.buns + GAME_CONFIG.incomePerSecond);
       this.nextIncomeTime = this.state.gameTime + 1000;
     }
     this.processSpawnQueues();
@@ -260,7 +260,7 @@ export class BattleEngine {
       }
 
       if (enemy.health <= 0) {
-        player.buns += enemy.reward;
+        player.buns = Math.min(GAME_CONFIG.bunsCapacity, player.buns + enemy.reward);
         this.emit({
           type: 'ENEMY_KILLED',
           enemyId: enemy.id,
@@ -576,7 +576,9 @@ export class BattleEngine {
 
       case 'burn':
         enemies.forEach((e) => {
-          if (this.distance(e.position, tilePos) <= (effect.radius || 60)) {
+          if (general.id === 'zhouyu' || this.distance(e.position, tilePos) <= (effect.radius || 60)) {
+            // The dragon's initial impact lands before its lingering burn.
+            e.health -= (effect.damage || 30) * 2;
             e.isBurning = true;
             e.burnDamage = effect.damage || 30;
             e.burnUntil = this.state.gameTime + (effect.duration || 3000);
@@ -714,13 +716,16 @@ export class BattleEngine {
       this.spawnBoss(wave.boss.id, false);
       this.spawnBoss(wave.boss.id, true);
     }
+    let nextSpawnOffset = 0;
     wave.enemies.forEach((enemy) => {
+      const offset = Math.max(nextSpawnOffset, enemy.delay);
       this.spawnQueue.push({
         enemy: { ...enemy },
-        spawnTime: this.state.gameTime + enemy.delay,
+        spawnTime: this.state.gameTime + offset,
         healthMultiplier: enemy.healthMultiplier || 1,
         spawnIndex: 0,
       });
+      nextSpawnOffset = offset + enemy.count * wave.spawnInterval;
     });
 
     return true;
@@ -765,6 +770,17 @@ export class BattleEngine {
       char = TILE_CONFIGS[selectedType].char;
     }
 
+    // A useful opening pair teaches name completion within the initial budget.
+    if (player.recruitCount <= 2) {
+      selectedType = 'general';
+      char = player.recruitCount === 1 ? '周' : '瑜';
+    }
+
+    if (player.recruitCount === 3 || player.recruitCount === 4) {
+      selectedType = 'bow';
+      char = '弓';
+    }
+
     const tile: TileState = {
       id: `tile_${this.nextTileId++}`,
       type: selectedType,
@@ -784,6 +800,27 @@ export class BattleEngine {
     this.emit({ type: 'RECRUIT', tileType: selectedType, char, isOpponent, slotIndex: emptySlotIndex });
 
     return tile;
+  }
+
+  discardTile(tileId: string, isOpponent = false): boolean {
+    const player = isOpponent ? this.state.opponent : this.state.player;
+    const tile = player.tiles.find(t => t.id === tileId);
+    if (!tile || tile.position) return false;
+    player.holdingSlots = player.holdingSlots.map(t => t?.id === tileId ? null : t);
+    player.tiles = player.tiles.filter(t => t.id !== tileId);
+    return true;
+  }
+
+  useShovel(shovelId: string, targetId: string): boolean {
+    const player = this.state.player;
+    const shovel = player.holdingSlots.find(t => t?.id === shovelId && t.type === 'shovel');
+    const target = player.tiles.find(t => t.id === targetId && t.position);
+    if (!shovel || !target) return false;
+    player.cells.forEach(c => { if (c.tileId === targetId) c.tileId = null; });
+    player.buns = Math.min(GAME_CONFIG.bunsCapacity, player.buns + GAME_CONFIG.baseRecruitCost * target.level);
+    player.tiles = player.tiles.filter(t => t.id !== targetId);
+    player.activeGenerals = player.activeGenerals.filter(g => !g.tileIds.includes(targetId));
+    return this.discardTile(shovelId);
   }
 
   placeTile(tileId: string, position: GridPosition, isOpponent: boolean): boolean {

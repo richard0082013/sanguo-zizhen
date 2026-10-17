@@ -13,6 +13,9 @@ export class BootScene extends Phaser.Scene {
     this.load.image('bg_river', assets.backgrounds.river);
     this.load.image('adou', assets.adou);
 
+    for (const [type, file] of Object.entries({ sword: 'dao', spear: 'qiang', bow: 'gong', cavalry: 'qi', shovel: 'chan' })) {
+      this.load.image('icon_' + type, '/assets/tiles/' + file + '.png');
+    }
     this.load.image('tile_white', assets.tiles.white);
     this.load.image('tile_green', assets.tiles.green);
     this.load.image('tile_blue', assets.tiles.blue);

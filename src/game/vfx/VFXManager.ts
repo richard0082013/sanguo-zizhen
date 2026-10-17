@@ -74,87 +74,60 @@ export class VFXManager {
 
   fireDragon(pathPoints: Position[], duration: number = 1500): void {
     if (pathPoints.length < 2) return;
-    this.scene.cameras.main.shake(450, 0.007);
-    const emitter = this.scene.add.particles(0, 0, 'fire_glow', {
-      speed: { min: 15, max: 65 },
-      scale: { start: 0.8, end: 0 },
-      alpha: { start: 0.5, end: 0 },
-      lifespan: 750,
-      blendMode: Phaser.BlendModes.ADD,
-      frequency: 18,
-      quantity: 3,
-      tint: [0xff6600, 0xff3300, 0xffaa00],
-    });
-    emitter.setDepth(300);
-
-    const dragonHead = this.scene.add.container(pathPoints[0].x, pathPoints[0].y).setDepth(310);
-    // Overlapping soft lobes form a curling, incandescent head, with no polygon silhouette.
-    for (let i = 0; i < 9; i++) {
-      const lobe = this.scene.add.image(-i * 5, Math.sin(i * 0.7) * 10, 'fire_glow');
-      lobe.setTint(i < 3 ? 0xffef99 : 0xff6518).setScale(0.6 + i * 0.025, 0.4);
-      lobe.setAlpha(0.32).setBlendMode(Phaser.BlendModes.ADD);
-      dragonHead.add(lobe);
-    }
-    const smoke = this.scene.add.particles(0, 0, 'smoke_glow', {
-      lifespan: 1100, frequency: 30, quantity: 2,
-      speedX: { min: -25, max: 25 }, speedY: { min: -55, max: -20 },
-      scale: { start: 0.3, end: 1.1 }, alpha: { start: 0.3, end: 0 },
-    }).setDepth(290).startFollow(dragonHead);
-    const embers = this.scene.add.particles(0, 0, 'fire_glow', {
-      lifespan: 900, frequency: 18, quantity: 3,
-      speed: { min: 40, max: 120 }, scale: { start: 0.1, end: 0 },
-      tint: [0xff4422, 0xffbb33], blendMode: Phaser.BlendModes.ADD,
-    }).setDepth(315).startFollow(dragonHead);
-
-    let pathIndex = 0;
-    const totalDistance = pathPoints.slice(1).reduce((sum, point, i) => sum + Phaser.Math.Distance.Between(pathPoints[i].x, pathPoints[i].y, point.x, point.y), 0);
-    const moveSpeed = totalDistance / (Math.max(500, duration) / 1000);
-
-    const updateDragon = () => {
-      if (pathIndex >= pathPoints.length - 1) {
-        emitter.stop();
-        smoke.stop();
-        embers.stop();
-        dragonHead.setVisible(false);
-        this.scene.time.delayedCall(1200, () => {
-          smoke.destroy();
-          embers.destroy();
-          emitter.destroy();
-          dragonHead.destroy();
-        });
-        return;
+    const lengths = pathPoints.slice(1).map((p, i) => Phaser.Math.Distance.Between(p.x, p.y, pathPoints[i].x, pathPoints[i].y));
+    const total = lengths.reduce((a, b) => a + b, 0);
+    const sample = (distance: number): Position => {
+      distance = Phaser.Math.Clamp(distance, 0, total);
+      for (let i = 0; i < lengths.length; i++) {
+        if (distance <= lengths[i]) return {
+          x: Phaser.Math.Linear(pathPoints[i].x, pathPoints[i+1].x, distance / lengths[i]),
+          y: Phaser.Math.Linear(pathPoints[i].y, pathPoints[i+1].y, distance / lengths[i]),
+        };
+        distance -= lengths[i];
       }
-
-      const current = pathPoints[pathIndex];
-      const next = pathPoints[pathIndex + 1];
-      const dist = Phaser.Math.Distance.Between(current.x, current.y, next.x, next.y);
-      const moveDuration = (dist / moveSpeed) * 1000;
-      dragonHead.setRotation(Phaser.Math.Angle.Between(current.x, current.y, next.x, next.y));
-
-      this.scene.tweens.add({
-        targets: dragonHead,
-        x: next.x,
-        y: next.y,
-        duration: moveDuration,
-        ease: 'Linear',
-        onComplete: () => {
-          pathIndex++;
-          updateDragon();
-        },
-      });
+      return pathPoints[pathPoints.length-1];
     };
-
-    emitter.startFollow(dragonHead);
-    updateDragon();
-
-    let elapsedDistance = 0;
-    for (let i = 0; i < pathPoints.length - 1; i++) {
-      const point = pathPoints[i];
-      this.scene.time.delayedCall(elapsedDistance / moveSpeed * 1000, () => {
-        this.createFireBurst(point.x, point.y, 16);
-      });
-      elapsedDistance += Phaser.Math.Distance.Between(point.x, point.y, pathPoints[i + 1].x, pathPoints[i + 1].y);
-    }
+    const body = Array.from({ length: 20 }, (_, i) => this.scene.add.image(0, 0, 'particle_flame')
+      .setDepth(305 - i * 0.1).setBlendMode(Phaser.BlendModes.ADD)
+      .setTint(i % 2 ? 0xffa522 : 0xff5010).setDisplaySize(35-i*0.8, 29-i*0.6));
+    const head = this.scene.add.container(0, 0).setDepth(310).setName('fireDragonHead');
+    head.add(this.scene.add.image(0, 0, 'particle_flame').setDisplaySize(65, 55).setBlendMode(Phaser.BlendModes.ADD));
+    const face = this.scene.add.graphics();
+    face.fillStyle(0xffa328).fillEllipse(0, 0, 32, 23);
+    face.fillStyle(0xffde70).fillTriangle(8, -8, 30, -3, 12, 6);
+    face.fillStyle(0x9e2d12).fillTriangle(8, 4, 27, 6, 10, 12);
+    face.lineStyle(3, 0xffe9a0).lineBetween(-7,-7,-16,-23).lineBetween(-16,-23,-4,-17);
+    face.lineBetween(-8,7,-18,21).lineBetween(-18,21,-5,16);
+    face.fillStyle(0x49150c).fillEllipse(7,-5,8,5);
+    face.fillStyle(0xffffff).fillCircle(9,-6,2);
+    face.lineStyle(2, 0xffed99).lineBetween(20,-1,34,-12).lineBetween(20,7,35,16);
+    head.add(face);
+    const embers = this.scene.add.particles(0, 0, 'particle_flame', {
+      lifespan: 600, frequency: 12, quantity: 3, speed: { min: 20, max: 85 },
+      scale: { start: 0.22, end: 0 }, blendMode: Phaser.BlendModes.ADD,
+      tint: [0xff5522, 0xffcc55],
+    }).setDepth(308).startFollow(head);
+    const progress = { value: 0 };
+    this.scene.tweens.add({
+      targets: progress, value: total + 190, duration, ease: 'Linear',
+      onUpdate: () => {
+        const p = sample(progress.value), next = sample(progress.value + 3), prev = sample(progress.value - 3);
+        const angle = Phaser.Math.Angle.Between(prev.x, prev.y, next.x, next.y);
+        head.setPosition(p.x, p.y).setRotation(angle).setVisible(progress.value <= total);
+        body.forEach((segment, i) => {
+          const d = progress.value - (i+1)*9;
+          const q = sample(d), r = sample(d+3);
+          const direction = Phaser.Math.Angle.Between(q.x,q.y,r.x,r.y);
+          const wave = Math.sin(i*0.65 + progress.value*0.045)*6;
+          segment.setPosition(q.x-Math.sin(direction)*wave,q.y+Math.cos(direction)*wave)
+            .setRotation(direction).setVisible(d >= 0 && d <= total);
+        });
+      },
+      onComplete: () => {
+        body.forEach(s => s.destroy()); head.destroy(); embers.stop();
+        this.scene.time.delayedCall(700, () => embers.destroy());
+      },
+    });
   }
 
   private createFireBurst(x: number, y: number, count: number): void {
@@ -619,7 +592,7 @@ export class VFXManager {
       case 'zhugeliang':
       case 'zhouyu':
         if (pathPoints && pathPoints.length > 0) {
-          this.fireDragon(pathPoints, 2000);
+          this.fireDragon(pathPoints, 1500);
         } else {
           this.flameJet(position, { x: position.x + 100, y: position.y }, 1000);
         }
