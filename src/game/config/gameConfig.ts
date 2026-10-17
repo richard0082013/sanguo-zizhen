@@ -4,24 +4,29 @@ export const GAME_CONFIG = {
 
   gridCols: 7,
   gridRows: 5,
-  cellSize: 44,
+  cellSize: 48,
 
-  playerBoardY: 460,
-  opponentBoardY: 70,
+  opponentBoardY: 20,
+  riverY: 336,
+  riverHeight: 40,
+  playerBoardY: 396,
+  hudY: 716,
+  hudHeight: 128,
+
   boardScale: 1,
-  opponentBoardScale: 0.85,
+  opponentBoardScale: 0.82,
 
-  playerGridStartX: 70,
-  playerGridStartY: 480,
+  playerGridStartX: 12,
+  playerGridStartY: 410,
 
-  opponentGridStartX: 85,
-  opponentGridStartY: 90,
+  opponentGridStartX: 30,
+  opponentGridStartY: 35,
 
-  playerAdouX: 28,
-  playerAdouY: 545,
+  playerAdouX: 10,
+  playerAdouY: 500,
 
-  opponentAdouX: 45,
-  opponentAdouY: 155,
+  opponentAdouX: 20,
+  opponentAdouY: 120,
 
   playerPathCells: [
     { col: 6, row: 1 },
@@ -148,8 +153,8 @@ export const GAME_CONFIG = {
   },
 
   typography: {
-    brush: '"KaiTi", "STKaiti", "Noto Serif SC", serif',
-    ui: '"Noto Sans SC", "Microsoft YaHei", sans-serif',
+    brush: '"Ma Shan Zheng", "ZCOOL XiaoWei", "KaiTi", "STKaiti", serif',
+    ui: '"ZCOOL XiaoWei", "Noto Sans SC", "Microsoft YaHei", sans-serif',
   },
 
   animation: {

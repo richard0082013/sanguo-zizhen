@@ -1,9 +1,10 @@
 import Phaser from 'phaser';
 import { BattleEngine } from '../logic/BattleEngine';
 import { GAME_CONFIG } from '../config/gameConfig';
-import { TILE_CONFIGS, SHOVEL_CONFIG, MAX_TILE_LEVEL } from '../config/tiles';
+import { TILE_CONFIGS, SHOVEL_CONFIG } from '../config/tiles';
 import { GENERALS } from '../config/generals';
 import { VFXManager } from '../vfx/VFXManager';
+import { TextureGenerator } from '../vfx/TextureGenerator';
 import type { TileState, EnemyState, GridPosition, GameEvent, Position } from '../logic/types';
 
 interface TileSprite {
@@ -14,7 +15,9 @@ interface TileSprite {
 
 interface EnemySprite {
   container: Phaser.GameObjects.Container;
-  healthBar: Phaser.GameObjects.Rectangle;
+  healthBar: Phaser.GameObjects.Graphics;
+  healthBg: Phaser.GameObjects.Graphics;
+  charText: Phaser.GameObjects.Text;
   id: string;
 }
 
@@ -25,10 +28,12 @@ const CURRENT_MAP = GAME_CONFIG.maps.desert;
 export class GameScene extends Phaser.Scene {
   private engine!: BattleEngine;
   private vfx!: VFXManager;
+  private textureGen!: TextureGenerator;
   private phase: GamePhase = 'start';
+  private debugMode: boolean = false;
 
-  private playerCells: Phaser.GameObjects.Rectangle[] = [];
-  private opponentCells: Phaser.GameObjects.Rectangle[] = [];
+  private playerCells: Phaser.GameObjects.Container[] = [];
+  private opponentCells: Phaser.GameObjects.Container[] = [];
 
   private tileSprites: Map<string, TileSprite> = new Map();
   private opponentTileSprites: Map<string, TileSprite> = new Map();
@@ -39,11 +44,10 @@ export class GameScene extends Phaser.Scene {
   private holdingSlotContainers: Phaser.GameObjects.Container[] = [];
   private playerAdou!: Phaser.GameObjects.Container;
   private opponentAdou!: Phaser.GameObjects.Container;
-  private playerHearts: Phaser.GameObjects.Text[] = [];
-  private opponentHearts: Phaser.GameObjects.Text[] = [];
+  private playerHearts: Phaser.GameObjects.Graphics[] = [];
+  private opponentHearts: Phaser.GameObjects.Graphics[] = [];
 
   private waveText!: Phaser.GameObjects.Text;
-  private mapNameText!: Phaser.GameObjects.Text;
   private bunsText!: Phaser.GameObjects.Text;
   private recruitButton!: Phaser.GameObjects.Container;
 
@@ -54,120 +58,173 @@ export class GameScene extends Phaser.Scene {
   private draggingTile: TileSprite | null = null;
   private dragOrigin: Position | null = null;
   private dragLine!: Phaser.GameObjects.Graphics;
+  private highlightedCells: Phaser.GameObjects.Graphics[] = [];
 
   constructor() {
     super({ key: 'GameScene' });
   }
 
   create(): void {
+    this.debugMode = new URLSearchParams(window.location.search).get('debug') === '1';
+
+    this.textureGen = new TextureGenerator(this);
+    this.textureGen.generateAll();
+
     this.vfx = new VFXManager({ scene: this });
 
     this.createBackground();
+    this.createRiver();
+    this.createOpponentBoard();
+    this.createPlayerBoard();
+    this.createHUD();
     this.createStartScreen();
-    this.createGameElements();
     this.createResultScreen();
 
     this.dragLine = this.add.graphics();
-    this.dragLine.setDepth(150);
+    this.dragLine.setDepth(500);
 
     this.showStartScreen();
 
     this.input.on('pointerdown', this.onPointerDown, this);
     this.input.on('pointermove', this.onPointerMove, this);
     this.input.on('pointerup', this.onPointerUp, this);
+
+    if (this.debugMode) {
+      this.createDebugControls();
+    }
+  }
+
+  private createDebugControls(): void {
+    const debugPanel = this.add.container(10, 10);
+    debugPanel.setDepth(2000);
+
+    const bg = this.add.rectangle(0, 0, 120, 200, 0x000000, 0.7);
+    bg.setOrigin(0, 0);
+
+    const title = this.add.text(10, 10, 'DEBUG', {
+      fontSize: '14px',
+      color: '#ff0',
+    });
+
+    const btnFireDragon = this.createDebugButton(10, 40, 'Fire Dragon', () => {
+      const pathPoints = this.getPathWorldPositions(false);
+      this.vfx.fireDragon(pathPoints, 2000);
+    });
+
+    const btnArrowRain = this.createDebugButton(10, 70, 'Arrow Rain', () => {
+      const cx = GAME_CONFIG.playerGridStartX + 150;
+      const cy = GAME_CONFIG.playerGridStartY + 100;
+      this.vfx.arrowRain(cx, cy, 80, 20);
+    });
+
+    const btnShockwave = this.createDebugButton(10, 100, 'Shockwave', () => {
+      const cx = GAME_CONFIG.playerGridStartX + 150;
+      const cy = GAME_CONFIG.playerGridStartY + 100;
+      this.vfx.shockwaveRoar(cx, cy, 120);
+    });
+
+    const btnSlash = this.createDebugButton(10, 130, 'Slash', () => {
+      const cx = GAME_CONFIG.playerGridStartX + 150;
+      const cy = GAME_CONFIG.playerGridStartY + 100;
+      this.vfx.crescentSlash({ x: cx, y: cy }, 0, 100);
+    });
+
+    const btnSpawnGeneral = this.createDebugButton(10, 160, 'Spawn Gen', () => {
+      this.debugSpawnGeneral();
+    });
+
+    debugPanel.add([bg, title, btnFireDragon, btnArrowRain, btnShockwave, btnSlash, btnSpawnGeneral]);
+  }
+
+  private createDebugButton(x: number, y: number, text: string, callback: () => void): Phaser.GameObjects.Text {
+    const btn = this.add.text(x, y, text, {
+      fontSize: '12px',
+      color: '#fff',
+      backgroundColor: '#444',
+      padding: { x: 4, y: 2 },
+    });
+    btn.setInteractive({ useHandCursor: true });
+    btn.on('pointerdown', callback);
+    return btn;
+  }
+
+  private debugSpawnGeneral(): void {
+    const state = this.engine.getState();
+    const general = GENERALS[Math.floor(Math.random() * GENERALS.length)];
+    const chars = general.chars;
+
+    chars.forEach((char, i) => {
+      const tile: TileState = {
+        id: `debug_tile_${Date.now()}_${i}`,
+        type: 'general',
+        char,
+        level: 1,
+        position: null,
+        generalId: general.id,
+        lastAttackTime: 0,
+        attackSpeedBuff: 0,
+        damageBuff: 0,
+        isStunned: false,
+        stunnedUntil: 0,
+      };
+
+      const emptySlotIndex = state.player.holdingSlots.findIndex((s) => s === null);
+      if (emptySlotIndex >= 0) {
+        state.player.tiles.push(tile);
+        state.player.holdingSlots[emptySlotIndex] = tile;
+        this.createHoldingSlotTile(emptySlotIndex);
+      }
+    });
   }
 
   private createBackground(): void {
-    const g = this.add.graphics();
+    if (this.textures.exists('parchment')) {
+      const bg = this.add.image(0, 0, 'parchment');
+      bg.setOrigin(0, 0);
+      bg.setDepth(0);
+    } else {
+      const g = this.add.graphics();
+      g.setDepth(0);
+      g.fillStyle(0xd4c4a8);
+      g.fillRect(0, 0, GAME_CONFIG.canvasWidth, GAME_CONFIG.canvasHeight);
 
-    g.fillStyle(Phaser.Display.Color.HexStringToColor(CURRENT_MAP.bgColor).color);
-    g.fillRect(0, 0, GAME_CONFIG.canvasWidth, GAME_CONFIG.canvasHeight);
+      g.fillStyle(0xc8b898, 0.3);
+      for (let y = 0; y < GAME_CONFIG.canvasHeight; y += 6) {
+        g.fillRect(0, y, GAME_CONFIG.canvasWidth, 3);
+      }
+    }
+  }
 
-    for (let y = 0; y < GAME_CONFIG.canvasHeight; y += 8) {
-      g.fillStyle(Phaser.Display.Color.HexStringToColor(CURRENT_MAP.bgPattern).color, 0.3);
-      g.fillRect(0, y, GAME_CONFIG.canvasWidth, 4);
+  private createRiver(): void {
+    const riverY = GAME_CONFIG.riverY;
+    const riverH = GAME_CONFIG.riverHeight;
+
+    if (this.textures.exists('river')) {
+      const river = this.add.image(0, riverY, 'river');
+      river.setOrigin(0, 0);
+      river.setDepth(5);
+    } else {
+      const g = this.add.graphics();
+      g.setDepth(5);
+      g.fillStyle(0x3a7a9a);
+      g.fillRect(0, riverY, GAME_CONFIG.canvasWidth, riverH);
+
+      g.lineStyle(2, 0x5aaacc, 0.5);
+      for (let i = 0; i < 5; i++) {
+        g.beginPath();
+        g.moveTo(0, riverY + 8 + i * 7);
+        for (let x = 0; x < GAME_CONFIG.canvasWidth; x += 30) {
+          g.lineTo(x + 15, riverY + 8 + i * 7 + Math.sin(x * 0.05) * 3);
+        }
+        g.strokePath();
+      }
     }
 
-    g.fillStyle(0x1a1810, 1);
-    g.fillRect(0, GAME_CONFIG.canvasHeight - 130, GAME_CONFIG.canvasWidth, 130);
-  }
-
-  private createStartScreen(): void {
-    this.startScreen = this.add.container(0, 0);
-    this.startScreen.setDepth(1000);
-
-    const overlay = this.add.rectangle(
-      GAME_CONFIG.canvasWidth / 2,
-      GAME_CONFIG.canvasHeight / 2,
-      GAME_CONFIG.canvasWidth,
-      GAME_CONFIG.canvasHeight,
-      0x000000,
-      0.8
-    );
-
-    const title = this.add.text(GAME_CONFIG.canvasWidth / 2, 280, '三国字阵', {
-      fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: '52px',
-      color: '#f4e8d0',
-      stroke: '#1a1a1a',
-      strokeThickness: 6,
-    });
-    title.setOrigin(0.5);
-
-    const subtitle = this.add.text(GAME_CONFIG.canvasWidth / 2, 350, '文字合成塔防', {
-      fontFamily: GAME_CONFIG.typography.ui,
-      fontSize: '18px',
-      color: '#a09080',
-    });
-    subtitle.setOrigin(0.5);
-
-    const startBtn = this.createButton(GAME_CONFIG.canvasWidth / 2, 480, '开始游戏', () => {
-      this.startGame();
-    });
-
-    this.startScreen.add([overlay, title, subtitle, startBtn]);
-  }
-
-  private createButton(x: number, y: number, text: string, callback: () => void): Phaser.GameObjects.Container {
-    const container = this.add.container(x, y);
-
-    const bg = this.add.graphics();
-    bg.fillStyle(0x8b4513, 1);
-    bg.fillRoundedRect(-70, -25, 140, 50, 8);
-    bg.lineStyle(3, 0x5c2e0a);
-    bg.strokeRoundedRect(-70, -25, 140, 50, 8);
-
-    const label = this.add.text(0, 0, text, {
-      fontFamily: GAME_CONFIG.typography.ui,
-      fontSize: '20px',
-      color: '#f4e8d0',
-    });
-    label.setOrigin(0.5);
-
-    container.add([bg, label]);
-    container.setSize(140, 50);
-    container.setInteractive();
-
-    container.on('pointerdown', () => {
-      this.tweens.add({
-        targets: container,
-        scaleX: 0.95,
-        scaleY: 0.95,
-        duration: 50,
-        yoyo: true,
-        onComplete: callback,
-      });
-    });
-
-    return container;
-  }
-
-  private createGameElements(): void {
-    this.createOpponentBoard();
-    this.createRiverDivider();
-    this.createPlayerBoard();
-    this.createHUD();
-    this.createDangerWarning();
+    const dividerTop = this.add.graphics();
+    dividerTop.setDepth(6);
+    dividerTop.fillStyle(0x5a4a3a, 1);
+    dividerTop.fillRect(0, riverY - 3, GAME_CONFIG.canvasWidth, 6);
+    dividerTop.fillRect(0, riverY + riverH - 3, GAME_CONFIG.canvasWidth, 6);
   }
 
   private createOpponentBoard(): void {
@@ -179,11 +236,7 @@ export class GameScene extends Phaser.Scene {
 
     this.opponentHearts = [];
     for (let i = 0; i < GAME_CONFIG.adouLives; i++) {
-      const heart = this.add.text(GAME_CONFIG.opponentAdouX - 10 + i * 14, GAME_CONFIG.opponentAdouY - 30, '❤', {
-        fontSize: '12px',
-        color: '#e53935',
-      });
-      heart.setOrigin(0.5);
+      const heart = this.createHeart(GAME_CONFIG.opponentAdouX + 10 + i * 14, GAME_CONFIG.opponentAdouY - 30, 0.6);
       this.opponentHearts.push(heart);
     }
 
@@ -193,40 +246,19 @@ export class GameScene extends Phaser.Scene {
         const y = opponentGridStartY + row * scaledSize;
         const isPath = pathSet.has(`${col},${row}`);
 
-        const cell = this.add.rectangle(
-          x + scaledSize / 2,
-          y + scaledSize / 2,
-          scaledSize - 1,
-          scaledSize - 1,
-          Phaser.Display.Color.HexStringToColor(isPath ? CURRENT_MAP.pathColor : CURRENT_MAP.cellColor).color
-        );
+        const cellContainer = this.add.container(x, y);
+        cellContainer.setDepth(10);
 
-        if (!isPath) {
-          cell.setStrokeStyle(1, Phaser.Display.Color.HexStringToColor(CURRENT_MAP.cellBorder).color);
+        if (isPath) {
+          const pathCell = this.createPathCell(scaledSize);
+          cellContainer.add(pathCell);
+        } else {
+          const gridCell = this.createGridCell(scaledSize);
+          cellContainer.add(gridCell);
         }
 
-        cell.setData('cellPos', { col, row });
-        cell.setData('isOpponent', true);
-        cell.setData('isPath', isPath);
-        this.opponentCells.push(cell);
+        this.opponentCells.push(cellContainer);
       }
-    }
-  }
-
-  private createRiverDivider(): void {
-    const y = 295;
-    const g = this.add.graphics();
-
-    g.fillStyle(0x4a6a8a, 0.6);
-    g.fillRect(0, y - 8, GAME_CONFIG.canvasWidth, 16);
-
-    g.lineStyle(2, 0x6a8aaa, 0.8);
-    g.lineBetween(0, y - 8, GAME_CONFIG.canvasWidth, y - 8);
-    g.lineBetween(0, y + 8, GAME_CONFIG.canvasWidth, y + 8);
-
-    for (let x = 0; x < GAME_CONFIG.canvasWidth; x += 30) {
-      g.lineStyle(1, 0x8aaaca, 0.4);
-      g.lineBetween(x, y - 5, x + 15, y + 5);
     }
   }
 
@@ -238,11 +270,7 @@ export class GameScene extends Phaser.Scene {
 
     this.playerHearts = [];
     for (let i = 0; i < GAME_CONFIG.adouLives; i++) {
-      const heart = this.add.text(GAME_CONFIG.playerAdouX - 15 + i * 18, GAME_CONFIG.playerAdouY - 45, '❤', {
-        fontSize: '16px',
-        color: '#e53935',
-      });
-      heart.setOrigin(0.5);
+      const heart = this.createHeart(GAME_CONFIG.playerAdouX + 15 + i * 18, GAME_CONFIG.playerAdouY - 35, 0.8);
       this.playerHearts.push(heart);
     }
 
@@ -252,168 +280,285 @@ export class GameScene extends Phaser.Scene {
         const y = playerGridStartY + row * cellSize;
         const isPath = pathSet.has(`${col},${row}`);
 
-        const cell = this.add.rectangle(
-          x + cellSize / 2,
-          y + cellSize / 2,
-          cellSize - 2,
-          cellSize - 2,
-          Phaser.Display.Color.HexStringToColor(isPath ? CURRENT_MAP.pathColor : CURRENT_MAP.cellColor).color
-        );
+        const cellContainer = this.add.container(x, y);
+        cellContainer.setDepth(10);
+        cellContainer.setData('col', col);
+        cellContainer.setData('row', row);
+        cellContainer.setData('isPath', isPath);
 
-        if (!isPath) {
-          cell.setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(CURRENT_MAP.cellBorder).color);
+        if (isPath) {
+          const pathCell = this.createPathCell(cellSize);
+          cellContainer.add(pathCell);
+        } else {
+          const gridCell = this.createGridCell(cellSize);
+          cellContainer.add(gridCell);
         }
 
-        cell.setData('cellPos', { col, row });
-        cell.setData('isOpponent', false);
-        cell.setData('isPath', isPath);
-        this.playerCells.push(cell);
+        this.playerCells.push(cellContainer);
       }
     }
   }
 
-  private createAdou(x: number, y: number, isSmall: boolean): Phaser.GameObjects.Container {
+  private createPathCell(size: number): Phaser.GameObjects.Graphics {
+    const g = this.add.graphics();
+
+    const gradient = g;
+    g.fillStyle(0x8b7050);
+    g.fillRect(0, 0, size, size);
+
+    g.fillStyle(0x705840, 0.5);
+    for (let i = 0; i < 8; i++) {
+      const px = Math.random() * size;
+      const py = Math.random() * size;
+      g.fillCircle(px, py, Math.random() * 3 + 1);
+    }
+
+    g.lineStyle(1, 0x604030, 0.5);
+    g.strokeRect(0, 0, size, size);
+
+    return g;
+  }
+
+  private createGridCell(size: number): Phaser.GameObjects.Graphics {
+    const g = this.add.graphics();
+
+    g.fillStyle(0xc4a070);
+    g.fillRect(0, 0, size, size);
+
+    g.lineStyle(2, 0x8a6a4a);
+    g.strokeRect(1, 1, size - 2, size - 2);
+
+    g.lineStyle(1, 0xd4b490);
+    g.strokeRect(3, 3, size - 6, size - 6);
+
+    return g;
+  }
+
+  private createAdou(x: number, y: number, isOpponent: boolean): Phaser.GameObjects.Container {
     const container = this.add.container(x, y);
-    const size = isSmall ? 35 : 50;
+    container.setDepth(15);
+
+    const scale = isOpponent ? 0.7 : 1;
 
     const basket = this.add.graphics();
-    basket.fillStyle(0xc9a227, 1);
-    basket.fillRoundedRect(-size / 2, -size / 2, size, size, 6);
-    basket.lineStyle(2, 0x8a7017);
-    basket.strokeRoundedRect(-size / 2, -size / 2, size, size, 6);
+    basket.fillStyle(0x8b6914);
+    basket.fillEllipse(25 * scale, 35 * scale, 44 * scale, 24 * scale);
+    basket.lineStyle(2, 0x5a4510);
+    basket.strokeEllipse(25 * scale, 35 * scale, 44 * scale, 24 * scale);
 
-    const text = this.add.text(0, 0, '斗', {
+    basket.fillStyle(0xc4a060);
+    basket.beginPath();
+    basket.moveTo(5 * scale, 25 * scale);
+    basket.lineTo(25 * scale, 15 * scale);
+    basket.lineTo(45 * scale, 25 * scale);
+    basket.lineTo(45 * scale, 38 * scale);
+    basket.lineTo(5 * scale, 38 * scale);
+    basket.closePath();
+    basket.fillPath();
+
+    for (let i = 0; i < 5; i++) {
+      basket.lineStyle(1, 0xa08040);
+      basket.beginPath();
+      basket.moveTo((8 + i * 8) * scale, 28 * scale);
+      basket.lineTo((10 + i * 8) * scale, 18 * scale);
+      basket.strokePath();
+    }
+
+    const head = this.add.graphics();
+    head.fillStyle(0xffd4b8);
+    head.fillCircle(25 * scale, 8 * scale, 12 * scale);
+    head.lineStyle(1, 0xd4a088);
+    head.strokeCircle(25 * scale, 8 * scale, 12 * scale);
+
+    head.fillStyle(0x1a1a1a);
+    head.fillCircle(21 * scale, 6 * scale, 2 * scale);
+    head.fillCircle(29 * scale, 6 * scale, 2 * scale);
+
+    head.fillStyle(0xffb8a0);
+    head.fillCircle(17 * scale, 10 * scale, 2.5 * scale);
+    head.fillCircle(33 * scale, 10 * scale, 2.5 * scale);
+
+    head.lineStyle(1, 0xd4a088);
+    head.beginPath();
+    head.arc(25 * scale, 12 * scale, 3 * scale, 0, Math.PI);
+    head.strokePath();
+
+    head.fillStyle(0x3a2a1a);
+    head.fillEllipse(25 * scale, 0, 10 * scale, 4 * scale);
+
+    const label = this.add.text(25 * scale, 48 * scale, '斗', {
       fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: isSmall ? '20px' : '28px',
-      color: '#8b0000',
+      fontSize: `${16 * scale}px`,
+      color: '#f4e8d0',
+      stroke: '#3a2a1a',
+      strokeThickness: 2,
     });
-    text.setOrigin(0.5);
+    label.setOrigin(0.5);
 
-    container.add([basket, text]);
+    container.add([basket, head, label]);
     return container;
   }
 
-  private getPathWorldPositions(isOpponent: boolean): Position[] {
-    const pathCells = isOpponent ? GAME_CONFIG.opponentPathCells : GAME_CONFIG.playerPathCells;
-    const startX = isOpponent ? GAME_CONFIG.opponentGridStartX : GAME_CONFIG.playerGridStartX;
-    const startY = isOpponent ? GAME_CONFIG.opponentGridStartY : GAME_CONFIG.playerGridStartY;
-    const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : GAME_CONFIG.boardScale;
-    const cellSize = GAME_CONFIG.cellSize * scale;
+  private createHeart(x: number, y: number, scale: number): Phaser.GameObjects.Graphics {
+    const g = this.add.graphics();
+    g.setPosition(x, y);
+    g.setDepth(16);
+    g.setScale(scale);
 
-    return pathCells.map((cell) => ({
-      x: startX + cell.col * cellSize + cellSize / 2,
-      y: startY + cell.row * cellSize + cellSize / 2,
-    }));
+    g.fillStyle(0xe53935);
+    g.fillCircle(6, 6, 6);
+    g.fillCircle(14, 6, 6);
+    g.fillTriangle(0, 8, 20, 8, 10, 20);
+
+    g.fillStyle(0xffffff, 0.4);
+    g.fillCircle(5, 5, 2);
+
+    return g;
   }
 
   private createHUD(): void {
-    this.mapNameText = this.add.text(GAME_CONFIG.canvasWidth / 2, 20, CURRENT_MAP.name, {
+    const hudY = GAME_CONFIG.hudY;
+
+    const hudBg = this.add.graphics();
+    hudBg.setDepth(50);
+    hudBg.fillStyle(0x2a2218);
+    hudBg.fillRect(0, hudY, GAME_CONFIG.canvasWidth, GAME_CONFIG.hudHeight);
+
+    hudBg.fillStyle(0x4a3828);
+    hudBg.fillRect(0, hudY, GAME_CONFIG.canvasWidth, 4);
+
+    const campLabel = this.add.text(15, hudY + 15, '营', {
       fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: '22px',
-      color: '#f4e8d0',
-      stroke: '#1a1a1a',
-      strokeThickness: 3,
-    });
-    this.mapNameText.setOrigin(0.5);
-
-    this.waveText = this.add.text(GAME_CONFIG.canvasWidth / 2, 45, '第1波', {
-      fontFamily: GAME_CONFIG.typography.ui,
-      fontSize: '14px',
+      fontSize: '28px',
       color: '#d4a537',
+      stroke: '#1a1a1a',
+      strokeThickness: 2,
     });
-    this.waveText.setOrigin(0.5);
+    campLabel.setDepth(51);
 
-    const campIcon = this.add.graphics();
-    campIcon.fillStyle(0x5c4a3a, 1);
-    campIcon.fillRoundedRect(8, GAME_CONFIG.canvasHeight - 118, 40, 40, 6);
-    campIcon.lineStyle(2, 0x3a2a1a);
-    campIcon.strokeRoundedRect(8, GAME_CONFIG.canvasHeight - 118, 40, 40, 6);
+    this.holdingSlotContainers = [];
+    const slotStartX = 55;
+    const slotY = hudY + 25;
+    const slotSize = 50;
+    const slotGap = 8;
 
-    const campText = this.add.text(28, GAME_CONFIG.canvasHeight - 98, '营', {
+    for (let i = 0; i < GAME_CONFIG.holdingSlots; i++) {
+      const slotX = slotStartX + i * (slotSize + slotGap);
+
+      const slotBg = this.add.graphics();
+      slotBg.setDepth(51);
+      slotBg.fillStyle(0x4a3828);
+      slotBg.fillRoundedRect(slotX, slotY, slotSize, slotSize, 6);
+      slotBg.lineStyle(2, 0x6a5848);
+      slotBg.strokeRoundedRect(slotX, slotY, slotSize, slotSize, 6);
+
+      const slotContainer = this.add.container(slotX + slotSize / 2, slotY + slotSize / 2);
+      slotContainer.setDepth(52);
+      this.holdingSlotContainers.push(slotContainer);
+    }
+
+    this.recruitButton = this.add.container(GAME_CONFIG.canvasWidth / 2, hudY + 95);
+    this.recruitButton.setDepth(51);
+
+    const btnBg = this.add.graphics();
+    btnBg.fillStyle(0x8b4513);
+    btnBg.fillRoundedRect(-80, -22, 160, 44, 8);
+    btnBg.lineStyle(3, 0xd4a537);
+    btnBg.strokeRoundedRect(-80, -22, 160, 44, 8);
+
+    const btnText = this.add.text(0, 0, '征兵', {
       fontFamily: GAME_CONFIG.typography.brush,
       fontSize: '24px',
       color: '#f4e8d0',
     });
-    campText.setOrigin(0.5);
+    btnText.setOrigin(0.5);
 
-    const slotStartX = 58;
-    const slotY = GAME_CONFIG.canvasHeight - 98;
-    const slotWidth = 48;
-    const slotGap = 4;
+    this.bunsText = this.add.text(50, 0, '30', {
+      fontFamily: GAME_CONFIG.typography.ui,
+      fontSize: '18px',
+      color: '#d4a537',
+    });
+    this.bunsText.setOrigin(0, 0.5);
 
-    for (let i = 0; i < GAME_CONFIG.holdingSlots; i++) {
-      const slotX = slotStartX + i * (slotWidth + slotGap);
-
-      const slotBg = this.add.graphics();
-      slotBg.fillStyle(0x3a3028, 1);
-      slotBg.fillRoundedRect(slotX, slotY - 24, slotWidth, slotWidth, 4);
-      slotBg.lineStyle(1, 0x5a5048);
-      slotBg.strokeRoundedRect(slotX, slotY - 24, slotWidth, slotWidth, 4);
-
-      const container = this.add.container(slotX + slotWidth / 2, slotY);
-      container.setData('slotIndex', i);
-      this.holdingSlotContainers.push(container);
-    }
-
-    this.recruitButton = this.add.container(GAME_CONFIG.canvasWidth / 2, GAME_CONFIG.canvasHeight - 35);
-
-    const recruitBg = this.add.graphics();
-    recruitBg.fillStyle(0x8b4513, 1);
-    recruitBg.fillRoundedRect(-55, -22, 110, 44, 8);
-    recruitBg.lineStyle(2, 0x5c2e0a);
-    recruitBg.strokeRoundedRect(-55, -22, 110, 44, 8);
-
-    const bunIcon = this.add.text(-35, 0, '🍞', { fontSize: '18px' });
+    const bunIcon = this.add.text(42, 0, '🥟', {
+      fontSize: '16px',
+    });
     bunIcon.setOrigin(0.5);
 
-    const recruitLabel = this.add.text(0, -5, '征兵', {
-      fontFamily: GAME_CONFIG.typography.ui,
-      fontSize: '16px',
-      color: '#f4e8d0',
+    this.recruitButton.add([btnBg, btnText, bunIcon, this.bunsText]);
+    this.recruitButton.setSize(160, 44);
+    this.recruitButton.setInteractive({ useHandCursor: true });
+    this.recruitButton.on('pointerdown', () => this.onRecruitClicked());
+
+    this.waveText = this.add.text(GAME_CONFIG.canvasWidth - 15, hudY + 15, '第1波', {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: '20px',
+      color: '#a09080',
     });
-    recruitLabel.setOrigin(0.5);
-
-    this.bunsText = this.add.text(0, 12, '10', {
-      fontFamily: GAME_CONFIG.typography.ui,
-      fontSize: '12px',
-      color: '#d4a537',
-    });
-    this.bunsText.setOrigin(0.5);
-
-    this.recruitButton.add([recruitBg, bunIcon, recruitLabel, this.bunsText]);
-    this.recruitButton.setSize(110, 44);
-    this.recruitButton.setInteractive();
-    this.recruitButton.on('pointerdown', () => this.onRecruitClick());
-
-    const bunsDisplay = this.add.container(GAME_CONFIG.canvasWidth - 50, GAME_CONFIG.canvasHeight - 35);
-    const bunsBg = this.add.graphics();
-    bunsBg.fillStyle(0x3a3028, 0.8);
-    bunsBg.fillRoundedRect(-30, -15, 60, 30, 6);
-
-    const bunsIcon = this.add.text(-15, 0, '🍞', { fontSize: '14px' });
-    bunsIcon.setOrigin(0.5);
-
-    this.bunsText = this.add.text(10, 0, '30', {
-      fontFamily: GAME_CONFIG.typography.ui,
-      fontSize: '14px',
-      color: '#d4a537',
-    });
-    this.bunsText.setOrigin(0.5);
-
-    bunsDisplay.add([bunsBg, bunsIcon, this.bunsText]);
+    this.waveText.setOrigin(1, 0);
+    this.waveText.setDepth(51);
   }
 
-  private createDangerWarning(): void {
-    this.dangerWarning = this.add.text(GAME_CONFIG.canvasWidth / 2, 400, '危', {
+  private createStartScreen(): void {
+    this.startScreen = this.add.container(0, 0);
+    this.startScreen.setDepth(1000);
+
+    const overlay = this.add.rectangle(
+      GAME_CONFIG.canvasWidth / 2,
+      GAME_CONFIG.canvasHeight / 2,
+      GAME_CONFIG.canvasWidth,
+      GAME_CONFIG.canvasHeight,
+      0x1a1810,
+      0.9
+    );
+
+    const title = this.add.text(GAME_CONFIG.canvasWidth / 2, GAME_CONFIG.canvasHeight * 0.3, '三国字阵', {
       fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: '80px',
-      color: '#ff0000',
-      stroke: '#000000',
-      strokeThickness: 6,
+      fontSize: '56px',
+      color: '#f4e8d0',
+      stroke: '#8b4513',
+      strokeThickness: 4,
     });
-    this.dangerWarning.setOrigin(0.5);
-    this.dangerWarning.setAlpha(0);
-    this.dangerWarning.setDepth(500);
+    title.setOrigin(0.5);
+
+    const subtitle = this.add.text(GAME_CONFIG.canvasWidth / 2, GAME_CONFIG.canvasHeight * 0.38, '文字合成塔防', {
+      fontFamily: GAME_CONFIG.typography.ui,
+      fontSize: '22px',
+      color: '#d4a537',
+    });
+    subtitle.setOrigin(0.5);
+
+    const startBtnContainer = this.add.container(GAME_CONFIG.canvasWidth / 2, GAME_CONFIG.canvasHeight * 0.55);
+
+    const startBtnBg = this.add.graphics();
+    startBtnBg.fillStyle(0xc41e3a);
+    startBtnBg.fillRoundedRect(-80, -30, 160, 60, 10);
+    startBtnBg.lineStyle(3, 0xffd700);
+    startBtnBg.strokeRoundedRect(-80, -30, 160, 60, 10);
+
+    const startBtnText = this.add.text(0, 0, '开战', {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: '32px',
+      color: '#fff',
+    });
+    startBtnText.setOrigin(0.5);
+
+    startBtnContainer.add([startBtnBg, startBtnText]);
+    startBtnContainer.setSize(160, 60);
+    startBtnContainer.setInteractive({ useHandCursor: true });
+    startBtnContainer.on('pointerdown', () => this.startGame());
+
+    const instructions = this.add.text(GAME_CONFIG.canvasWidth / 2, GAME_CONFIG.canvasHeight * 0.72,
+      '征兵获得棋子，拖放到棋盘上\n相同棋子合并可升级\n集齐武将名字激活必杀技\n守护阿斗，击退敌军！', {
+        fontFamily: GAME_CONFIG.typography.ui,
+        fontSize: '16px',
+        color: '#a09080',
+        align: 'center',
+        lineSpacing: 8,
+      });
+    instructions.setOrigin(0.5);
+
+    this.startScreen.add([overlay, title, subtitle, startBtnContainer, instructions]);
   }
 
   private createResultScreen(): void {
@@ -430,21 +575,7 @@ export class GameScene extends Phaser.Scene {
       0.85
     );
 
-    const resultTitle = this.add.text(GAME_CONFIG.canvasWidth / 2, 350, '', {
-      fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: '48px',
-      color: '#f4e8d0',
-      stroke: '#1a1a1a',
-      strokeThickness: 4,
-    });
-    resultTitle.setOrigin(0.5);
-    resultTitle.setData('type', 'title');
-
-    const restartBtn = this.createButton(GAME_CONFIG.canvasWidth / 2, 480, '再来一局', () => {
-      this.scene.restart();
-    });
-
-    this.resultScreen.add([overlay, resultTitle, restartBtn]);
+    this.resultScreen.add([overlay]);
   }
 
   private showStartScreen(): void {
@@ -453,28 +584,322 @@ export class GameScene extends Phaser.Scene {
   }
 
   private startGame(): void {
-    const seed = Date.now();
-    this.engine = new BattleEngine(seed);
-    this.engine.addEventListener(this.handleGameEvent.bind(this));
-
     this.phase = 'playing';
     this.startScreen.setVisible(false);
-
-    this.tileSprites.clear();
-    this.opponentTileSprites.clear();
-    this.enemySprites.clear();
-    this.opponentEnemySprites.clear();
-    this.projectileSprites.clear();
+    this.engine = new BattleEngine(Date.now());
+    this.engine.addEventListener((event: GameEvent) => this.handleGameEvent(event));
 
     this.time.delayedCall(500, () => {
       this.engine.startNextWave();
     });
   }
 
+  update(_time: number, delta: number): void {
+    if (this.phase !== 'playing') return;
+
+    this.engine.update(delta);
+    this.updateSprites();
+  }
+
+  private updateSprites(): void {
+    const state = this.engine.getState();
+
+    this.updateEnemies(state.enemies, false);
+    this.updateEnemies(state.opponentEnemies, true);
+
+    this.updateTiles(state.player.tiles, false);
+    this.updateTiles(state.opponent.tiles, true);
+
+    this.updateProjectiles(state.projectiles, false);
+    this.updateProjectiles(state.opponentProjectiles, true);
+
+    this.updateUI(state);
+  }
+
+  private updateEnemies(enemies: EnemyState[], isOpponent: boolean): void {
+    const spriteMap = isOpponent ? this.opponentEnemySprites : this.enemySprites;
+
+    enemies.forEach((enemy) => {
+      let sprite = spriteMap.get(enemy.id);
+
+      if (!sprite) {
+        sprite = this.createEnemySprite(enemy, isOpponent);
+        spriteMap.set(enemy.id, sprite);
+      }
+
+      const worldPos = this.getEnemyWorldPosition(enemy, isOpponent);
+      sprite.container.setPosition(worldPos.x, worldPos.y);
+
+      const healthPercent = enemy.health / enemy.maxHealth;
+      sprite.healthBar.clear();
+      sprite.healthBar.fillStyle(healthPercent > 0.3 ? 0x4caf50 : 0xf44336);
+      sprite.healthBar.fillRect(-15, -22, 30 * healthPercent, 5);
+    });
+
+    spriteMap.forEach((sprite, id) => {
+      if (!enemies.find((e) => e.id === id)) {
+        this.vfx.inkSplat(sprite.container.x, sprite.container.y);
+        sprite.container.destroy();
+        spriteMap.delete(id);
+      }
+    });
+  }
+
+  private createEnemySprite(enemy: EnemyState, isOpponent: boolean): EnemySprite {
+    const container = this.add.container(0, 0);
+    container.setDepth(100);
+
+    const size = enemy.isBoss ? 36 : 28;
+    const scale = isOpponent ? 0.8 : 1;
+
+    const body = this.add.graphics();
+    const color = enemy.isBoss ? 0xa44 : Phaser.Display.Color.HexStringToColor(enemy.color).color;
+
+    body.fillStyle(0x222222);
+    body.fillCircle(2, 2, size / 2 * scale);
+
+    body.fillStyle(color);
+    body.fillCircle(0, 0, size / 2 * scale);
+    body.lineStyle(2, 0x111111);
+    body.strokeCircle(0, 0, size / 2 * scale);
+
+    body.fillStyle(0x1a1a1a);
+    body.fillCircle(-4 * scale, -2 * scale, 2 * scale);
+    body.fillCircle(4 * scale, -2 * scale, 2 * scale);
+
+    if (enemy.isBoss) {
+      body.fillStyle(0xffd700);
+      body.beginPath();
+      body.moveTo(0, -size / 2 * scale - 5);
+      body.lineTo(-5, -size / 2 * scale + 2);
+      body.lineTo(5, -size / 2 * scale + 2);
+      body.closePath();
+      body.fillPath();
+    }
+
+    const charText = this.add.text(0, 2 * scale, enemy.char, {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: `${14 * scale}px`,
+      color: '#fff',
+      stroke: '#000',
+      strokeThickness: 2,
+    });
+    charText.setOrigin(0.5);
+
+    const healthBg = this.add.graphics();
+    healthBg.fillStyle(0x333333);
+    healthBg.fillRect(-16, -23, 32, 7);
+
+    const healthBar = this.add.graphics();
+    healthBar.fillStyle(0x4caf50);
+    healthBar.fillRect(-15, -22, 30, 5);
+
+    container.add([body, charText, healthBg, healthBar]);
+
+    return { container, healthBar, healthBg, charText, id: enemy.id };
+  }
+
+  private getEnemyWorldPosition(enemy: EnemyState, isOpponent: boolean): Position {
+    const pathCells = isOpponent ? GAME_CONFIG.opponentPathCells : GAME_CONFIG.playerPathCells;
+    const startX = isOpponent ? GAME_CONFIG.opponentGridStartX : GAME_CONFIG.playerGridStartX;
+    const startY = isOpponent ? GAME_CONFIG.opponentGridStartY : GAME_CONFIG.playerGridStartY;
+    const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : GAME_CONFIG.boardScale;
+    const cellSize = GAME_CONFIG.cellSize * scale;
+
+    const pathIndex = Math.floor(enemy.pathIndex);
+    const progress = enemy.pathProgress;
+
+    if (pathIndex >= pathCells.length - 1) {
+      const lastCell = pathCells[pathCells.length - 1];
+      return {
+        x: startX + lastCell.col * cellSize + cellSize / 2,
+        y: startY + lastCell.row * cellSize + cellSize / 2,
+      };
+    }
+
+    const currentCell = pathCells[pathIndex];
+    const nextCell = pathCells[pathIndex + 1];
+
+    const currentX = startX + currentCell.col * cellSize + cellSize / 2;
+    const currentY = startY + currentCell.row * cellSize + cellSize / 2;
+    const nextX = startX + nextCell.col * cellSize + cellSize / 2;
+    const nextY = startY + nextCell.row * cellSize + cellSize / 2;
+
+    return {
+      x: currentX + (nextX - currentX) * progress,
+      y: currentY + (nextY - currentY) * progress,
+    };
+  }
+
+  private updateTiles(tiles: TileState[], isOpponent: boolean): void {
+    const spriteMap = isOpponent ? this.opponentTileSprites : this.tileSprites;
+
+    tiles.forEach((tile) => {
+      if (!tile.position) return;
+
+      let sprite = spriteMap.get(tile.id);
+      if (!sprite) {
+        sprite = this.createTileSprite(tile, isOpponent);
+        spriteMap.set(tile.id, sprite);
+      }
+
+      const worldPos = this.getTileWorldPosition(tile.position, isOpponent);
+      sprite.container.setPosition(worldPos.x, worldPos.y);
+    });
+
+    spriteMap.forEach((sprite, id) => {
+      const tile = tiles.find((t) => t.id === id);
+      if (!tile || !tile.position) {
+        if (!this.draggingTile || this.draggingTile.id !== id) {
+          sprite.container.destroy();
+          spriteMap.delete(id);
+        }
+      }
+    });
+  }
+
+  private createTileSprite(tile: TileState, isOpponent: boolean): TileSprite {
+    const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : 1;
+    const size = (GAME_CONFIG.cellSize - 6) * scale;
+
+    const container = this.add.container(0, 0);
+    container.setDepth(100);
+
+    const levelColors: Record<number, { bg: number; border: number; glow: number }> = {
+      1: { bg: 0xf8f4e8, border: 0xc8c0b0, glow: 0xffffff },
+      2: { bg: 0x90c878, border: 0x608848, glow: 0xaaffaa },
+      3: { bg: 0x70a8d8, border: 0x4878a8, glow: 0xaaddff },
+      4: { bg: 0xb888c8, border: 0x8858a8, glow: 0xddaaff },
+      5: { bg: 0xf8c040, border: 0xc89020, glow: 0xffdd88 },
+    };
+
+    const colors = levelColors[tile.level] || levelColors[1];
+
+    const shadow = this.add.graphics();
+    shadow.fillStyle(0x222222, 0.4);
+    shadow.fillRoundedRect(3, 3, size, size, 4);
+
+    const bg = this.add.graphics();
+    bg.fillStyle(colors.bg);
+    bg.fillRoundedRect(0, 0, size, size, 4);
+    bg.lineStyle(2, colors.border);
+    bg.strokeRoundedRect(0, 0, size, size, 4);
+
+    bg.lineStyle(1, 0xffffff, 0.4);
+    bg.beginPath();
+    bg.moveTo(4, 2);
+    bg.lineTo(size - 4, 2);
+    bg.strokePath();
+    bg.beginPath();
+    bg.moveTo(2, 4);
+    bg.lineTo(2, size - 4);
+    bg.strokePath();
+
+    const charText = this.add.text(size / 2, size / 2, tile.char, {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: `${22 * scale}px`,
+      color: '#1a1a1a',
+      stroke: '#fff',
+      strokeThickness: 1,
+    });
+    charText.setOrigin(0.5);
+
+    if (tile.level > 1) {
+      const levelText = this.add.text(size - 4, size - 4, `${tile.level}`, {
+        fontFamily: GAME_CONFIG.typography.ui,
+        fontSize: `${10 * scale}px`,
+        color: '#fff',
+        stroke: '#000',
+        strokeThickness: 2,
+      });
+      levelText.setOrigin(1, 1);
+      container.add(levelText);
+    }
+
+    container.add([shadow, bg, charText]);
+    container.setSize(size, size);
+
+    return { container, id: tile.id };
+  }
+
+  private getTileWorldPosition(gridPos: GridPosition, isOpponent: boolean): Position {
+    const startX = isOpponent ? GAME_CONFIG.opponentGridStartX : GAME_CONFIG.playerGridStartX;
+    const startY = isOpponent ? GAME_CONFIG.opponentGridStartY : GAME_CONFIG.playerGridStartY;
+    const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : GAME_CONFIG.boardScale;
+    const cellSize = GAME_CONFIG.cellSize * scale;
+
+    return {
+      x: startX + gridPos.col * cellSize + cellSize / 2,
+      y: startY + gridPos.row * cellSize + cellSize / 2,
+    };
+  }
+
+  private updateProjectiles(projectiles: any[], isOpponent: boolean): void {
+    projectiles.forEach((proj) => {
+      let sprite = this.projectileSprites.get(proj.id);
+
+      if (!sprite) {
+        sprite = this.createProjectileSprite(proj);
+        this.projectileSprites.set(proj.id, sprite);
+      }
+
+      sprite.setPosition(proj.position.x, proj.position.y);
+
+      const angle = Phaser.Math.Angle.Between(
+        proj.position.x, proj.position.y,
+        proj.targetPosition.x, proj.targetPosition.y
+      );
+      sprite.setRotation(angle);
+    });
+
+    this.projectileSprites.forEach((sprite, id) => {
+      if (!projectiles.find((p) => p.id === id)) {
+        this.vfx.createImpactSpark(sprite.x, sprite.y, 0xffcc00);
+        sprite.destroy();
+        this.projectileSprites.delete(id);
+      }
+    });
+  }
+
+  private createProjectileSprite(proj: any): Phaser.GameObjects.Container {
+    const container = this.add.container(proj.position.x, proj.position.y);
+    container.setDepth(150);
+
+    const g = this.add.graphics();
+
+    if (proj.tileType === 'bow') {
+      g.fillStyle(0x8b4513);
+      g.fillRect(-8, -1, 16, 2);
+      g.fillStyle(0x444444);
+      g.fillTriangle(8, 0, 4, -3, 4, 3);
+    } else {
+      g.fillStyle(0xffaa00);
+      g.fillCircle(0, 0, 5);
+      g.fillStyle(0xffff00, 0.5);
+      g.fillCircle(-1, -1, 3);
+    }
+
+    container.add(g);
+    return container;
+  }
+
+  private updateUI(state: any): void {
+    this.bunsText.setText(`${state.player.buns}`);
+
+    for (let i = 0; i < this.playerHearts.length; i++) {
+      this.playerHearts[i].setAlpha(i < state.player.adouLives ? 1 : 0.3);
+    }
+
+    for (let i = 0; i < this.opponentHearts.length; i++) {
+      this.opponentHearts[i].setAlpha(i < state.opponent.adouLives ? 1 : 0.3);
+    }
+  }
+
   private handleGameEvent(event: GameEvent): void {
     switch (event.type) {
       case 'WAVE_STARTED':
         this.waveText.setText(`第${event.waveNumber}波`);
+        this.showAnnouncement(`第${event.waveNumber}波`);
         break;
 
       case 'ENEMY_KILLED':
@@ -533,6 +958,211 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private getPathWorldPositions(isOpponent: boolean): Position[] {
+    const pathCells = isOpponent ? GAME_CONFIG.opponentPathCells : GAME_CONFIG.playerPathCells;
+    const startX = isOpponent ? GAME_CONFIG.opponentGridStartX : GAME_CONFIG.playerGridStartX;
+    const startY = isOpponent ? GAME_CONFIG.opponentGridStartY : GAME_CONFIG.playerGridStartY;
+    const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : GAME_CONFIG.boardScale;
+    const cellSize = GAME_CONFIG.cellSize * scale;
+
+    return pathCells.map((cell) => ({
+      x: startX + cell.col * cellSize + cellSize / 2,
+      y: startY + cell.row * cellSize + cellSize / 2,
+    }));
+  }
+
+  private onEnemyKilled(enemyId: string, reward: number, isOpponent: boolean, position: Position): void {
+    this.showDamageNumber(position.x, position.y, reward, true);
+    this.vfx.inkSplat(position.x, position.y);
+  }
+
+  private onEnemyReachedEnd(isOpponent: boolean): void {
+    const target = isOpponent ? this.opponentAdou : this.playerAdou;
+
+    this.cameras.main.shake(200, 0.01);
+
+    this.tweens.add({
+      targets: target,
+      x: target.x + 5,
+      duration: 50,
+      yoyo: true,
+      repeat: 3,
+    });
+  }
+
+  private onTilesMerged(tile1Id: string, tile2Id: string, newTileId: string): void {
+    const sprite1 = this.tileSprites.get(tile1Id);
+    const sprite2 = this.tileSprites.get(tile2Id);
+
+    if (sprite1 && sprite2) {
+      const x = sprite2.container.x;
+      const y = sprite2.container.y;
+
+      this.vfx.levelUpGlow(x, y, 2);
+
+      sprite1.container.destroy();
+      this.tileSprites.delete(tile1Id);
+    }
+  }
+
+  private showAttackEffect(from: Position, to: Position, tileType: string): void {
+    const g = this.add.graphics();
+    g.setDepth(120);
+
+    g.lineStyle(3, 0xffaa00, 0.8);
+    g.beginPath();
+    g.moveTo(from.x, from.y);
+    g.lineTo(to.x, to.y);
+    g.strokePath();
+
+    this.tweens.add({
+      targets: g,
+      alpha: 0,
+      duration: 150,
+      onComplete: () => g.destroy(),
+    });
+
+    this.vfx.createImpactSpark(to.x, to.y, 0xffcc00);
+  }
+
+  private showDamageNumber(x: number, y: number, amount: number, isReward: boolean): void {
+    const text = this.add.text(x, y, isReward ? `+${amount}` : `-${amount}`, {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: '18px',
+      color: isReward ? '#4caf50' : '#ff4444',
+      stroke: '#000',
+      strokeThickness: 2,
+    });
+    text.setOrigin(0.5);
+    text.setDepth(200);
+
+    this.tweens.add({
+      targets: text,
+      y: y - 40,
+      alpha: 0,
+      duration: 600,
+      ease: 'Cubic.easeOut',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  private showAnnouncement(message: string): void {
+    const text = this.add.text(GAME_CONFIG.canvasWidth / 2, GAME_CONFIG.canvasHeight / 2, message, {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: '36px',
+      color: '#f4e8d0',
+      stroke: '#8b4513',
+      strokeThickness: 4,
+    });
+    text.setOrigin(0.5);
+    text.setDepth(500);
+    text.setAlpha(0);
+    text.setScale(0.5);
+
+    this.tweens.add({
+      targets: text,
+      alpha: 1,
+      scale: 1,
+      duration: 300,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: text,
+          alpha: 0,
+          y: text.y - 50,
+          delay: 800,
+          duration: 400,
+          onComplete: () => text.destroy(),
+        });
+      },
+    });
+  }
+
+  private showDangerWarning(): void {
+    const warning = this.add.text(GAME_CONFIG.canvasWidth / 2, GAME_CONFIG.canvasHeight / 2, '⚠ BOSS来袭 ⚠', {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: '32px',
+      color: '#ff4444',
+      stroke: '#000',
+      strokeThickness: 4,
+    });
+    warning.setOrigin(0.5);
+    warning.setDepth(500);
+
+    this.tweens.add({
+      targets: warning,
+      alpha: 0,
+      scale: 1.5,
+      duration: 1000,
+      onComplete: () => warning.destroy(),
+    });
+
+    this.cameras.main.shake(500, 0.005);
+  }
+
+  private showResult(winner: string): void {
+    this.phase = 'result';
+
+    const isVictory = winner === 'player';
+
+    const overlay = this.add.rectangle(
+      GAME_CONFIG.canvasWidth / 2,
+      GAME_CONFIG.canvasHeight / 2,
+      GAME_CONFIG.canvasWidth,
+      GAME_CONFIG.canvasHeight,
+      0x000000,
+      0.85
+    );
+    overlay.setDepth(900);
+
+    const resultText = this.add.text(
+      GAME_CONFIG.canvasWidth / 2,
+      GAME_CONFIG.canvasHeight * 0.35,
+      isVictory ? '胜利！' : '失败...',
+      {
+        fontFamily: GAME_CONFIG.typography.brush,
+        fontSize: '48px',
+        color: isVictory ? '#ffd700' : '#888',
+        stroke: '#000',
+        strokeThickness: 4,
+      }
+    );
+    resultText.setOrigin(0.5);
+    resultText.setDepth(901);
+
+    const restartBtn = this.add.container(GAME_CONFIG.canvasWidth / 2, GAME_CONFIG.canvasHeight * 0.55);
+    restartBtn.setDepth(901);
+
+    const btnBg = this.add.graphics();
+    btnBg.fillStyle(0x8b4513);
+    btnBg.fillRoundedRect(-70, -25, 140, 50, 8);
+    btnBg.lineStyle(2, 0xd4a537);
+    btnBg.strokeRoundedRect(-70, -25, 140, 50, 8);
+
+    const btnText = this.add.text(0, 0, '再来一局', {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: '22px',
+      color: '#f4e8d0',
+    });
+    btnText.setOrigin(0.5);
+
+    restartBtn.add([btnBg, btnText]);
+    restartBtn.setSize(140, 50);
+    restartBtn.setInteractive({ useHandCursor: true });
+    restartBtn.on('pointerdown', () => {
+      this.scene.restart();
+    });
+  }
+
+  private onRecruitClicked(): void {
+    if (this.phase !== 'playing') return;
+
+    const tile = this.engine.recruit(false);
+    if (tile) {
+      this.bunsText.setText(`${this.engine.getState().player.buns}`);
+    }
+  }
+
   private createHoldingSlotTile(slotIndex: number): void {
     const state = this.engine.getState();
     const tile = state.player.holdingSlots[slotIndex];
@@ -550,294 +1180,38 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({
       targets: sprite.container,
       scale: 1,
-      duration: 150,
+      duration: 200,
       ease: 'Back.easeOut',
     });
-  }
-
-  private createTileSprite(tile: TileState, isOpponent: boolean): TileSprite {
-    const size = isOpponent ? 32 : 42;
-
-    const container = this.add.container(0, 0);
-    container.setDepth(100);
-
-    const levelColor = GAME_CONFIG.levelColors[tile.level as keyof typeof GAME_CONFIG.levelColors] || GAME_CONFIG.levelColors[1];
-    const borderColor = GAME_CONFIG.levelBorderColors[tile.level as keyof typeof GAME_CONFIG.levelBorderColors] || GAME_CONFIG.levelBorderColors[1];
-
-    const shadow = this.add.rectangle(2, 2, size, size, 0x000000, 0.3);
-
-    const bg = this.add.rectangle(0, 0, size, size, Phaser.Display.Color.HexStringToColor(levelColor).color);
-    bg.setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(borderColor).color);
-
-    let textColor = '#1a1a1a';
-    if (tile.type === 'general') {
-      const general = GENERALS.find((g) => g.chars.includes(tile.char));
-      if (general) {
-        textColor = GAME_CONFIG.colors[general.faction] || '#1a1a1a';
-      }
-    }
-
-    const text = this.add.text(0, 0, tile.char, {
-      fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: isOpponent ? '18px' : '24px',
-      color: textColor,
-    });
-    text.setOrigin(0.5);
-
-    const levelBadge = this.add.text(size / 2 - 6, -size / 2 + 6, `${tile.level}`, {
-      fontFamily: GAME_CONFIG.typography.ui,
-      fontSize: '10px',
-      color: '#1a1a1a',
-    });
-    levelBadge.setOrigin(0.5);
-
-    container.add([shadow, bg, text, levelBadge]);
-    container.setSize(size, size);
-    container.setInteractive();
-    container.setData('tileId', tile.id);
-
-    return { container, id: tile.id };
-  }
-
-  private onEnemyKilled(enemyId: string, reward: number, isOpponent: boolean, position: Position): void {
-    const sprites = isOpponent ? this.opponentEnemySprites : this.enemySprites;
-    const sprite = sprites.get(enemyId);
-
-    if (sprite) {
-      this.createDeathPuff(sprite.container.x, sprite.container.y);
-      this.flyBunToCounter(sprite.container.x, sprite.container.y, isOpponent);
-
-      sprite.container.destroy();
-      sprites.delete(enemyId);
-    }
-  }
-
-  private createDeathPuff(x: number, y: number): void {
-    const puff = this.add.graphics();
-    puff.fillStyle(0x1a1a1a, 0.8);
-    puff.fillCircle(x, y, 15);
-    puff.setDepth(200);
-
-    this.tweens.add({
-      targets: puff,
-      alpha: 0,
-      scale: 2,
-      duration: GAME_CONFIG.animation.deathPuffDuration,
-      onComplete: () => puff.destroy(),
-    });
-  }
-
-  private flyBunToCounter(fromX: number, fromY: number, isOpponent: boolean): void {
-    if (isOpponent) return;
-
-    const bun = this.add.text(fromX, fromY, '🍞', { fontSize: '16px' });
-    bun.setOrigin(0.5);
-    bun.setDepth(300);
-
-    const targetX = GAME_CONFIG.canvasWidth - 50;
-    const targetY = GAME_CONFIG.canvasHeight - 35;
-
-    this.tweens.add({
-      targets: bun,
-      x: targetX,
-      y: targetY,
-      scale: 0.5,
-      duration: GAME_CONFIG.animation.bunFlyDuration,
-      ease: 'Quad.easeIn',
-      onComplete: () => bun.destroy(),
-    });
-  }
-
-  private onEnemyReachedEnd(isOpponent: boolean): void {
-    const adou = isOpponent ? this.opponentAdou : this.playerAdou;
-    const hearts = isOpponent ? this.opponentHearts : this.playerHearts;
-
-    this.tweens.add({
-      targets: adou,
-      x: adou.x + 8,
-      duration: 40,
-      yoyo: true,
-      repeat: 4,
-    });
-
-    const state = this.engine.getState();
-    const lives = isOpponent ? state.opponent.adouLives : state.player.adouLives;
-
-    hearts.forEach((heart, i) => {
-      if (i >= lives) {
-        heart.setText('♡');
-        heart.setColor('#4a4a4a');
-      }
-    });
-
-    if (!isOpponent) {
-      this.cameras.main.shake(150, 0.01);
-    }
-  }
-
-  private showDamageNumber(x: number, y: number, damage: number, isCrit: boolean): void {
-    const color = isCrit ? GAME_CONFIG.colors.damageCrit : GAME_CONFIG.colors.damageNormal;
-    const text = this.add.text(x, y, `-${damage}`, {
-      fontFamily: GAME_CONFIG.typography.ui,
-      fontSize: isCrit ? '18px' : '14px',
-      color: color,
-      stroke: '#ffffff',
-      strokeThickness: 2,
-    });
-    text.setOrigin(0.5);
-    text.setDepth(400);
-
-    this.tweens.add({
-      targets: text,
-      y: y - 30,
-      alpha: 0,
-      duration: GAME_CONFIG.animation.damageNumberDuration,
-      ease: 'Quad.easeOut',
-      onComplete: () => text.destroy(),
-    });
-  }
-
-  private showAttackEffect(from: Position, to: Position, tileType: string): void {
-    const g = this.add.graphics();
-    g.setDepth(150);
-
-    if (tileType === 'sword') {
-      g.lineStyle(3, 0x333333, 0.8);
-    } else if (tileType === 'spear') {
-      g.lineStyle(2, 0x666666, 0.8);
-    } else {
-      g.lineStyle(2, 0x444444, 0.6);
-    }
-
-    g.lineBetween(from.x, from.y, to.x, to.y);
-
-    this.tweens.add({
-      targets: g,
-      alpha: 0,
-      duration: 100,
-      onComplete: () => g.destroy(),
-    });
-  }
-
-  private onTilesMerged(tile1Id: string, tile2Id: string, newTileId: string): void {
-    const sprite1 = this.tileSprites.get(tile1Id);
-    const sprite2 = this.tileSprites.get(tile2Id);
-
-    const targetPos = sprite1?.container ? { x: sprite1.container.x, y: sprite1.container.y } : null;
-
-    [sprite1, sprite2].forEach((s) => {
-      if (s) {
-        s.container.destroy();
-        this.tileSprites.delete(s.id);
-      }
-    });
-
-    const state = this.engine.getState();
-    const newTile = state.player.tiles.find((t) => t.id === newTileId);
-
-    if (newTile && targetPos) {
-      const sprite = this.createTileSprite(newTile, false);
-
-      if (newTile.position) {
-        const pos = this.engine.gridToWorld(newTile.position, false);
-        sprite.container.setPosition(pos.x, pos.y);
-      } else {
-        sprite.container.setPosition(targetPos.x, targetPos.y);
-      }
-
-      this.tileSprites.set(newTileId, sprite);
-
-      sprite.container.setScale(0);
-      this.tweens.add({
-        targets: sprite.container,
-        scale: 1,
-        duration: 200,
-        ease: 'Back.easeOut',
-      });
-
-      this.createMergeFlash(sprite.container.x, sprite.container.y);
-    }
-  }
-
-  private createMergeFlash(x: number, y: number): void {
-    const flash = this.add.graphics();
-    flash.fillStyle(0xffffff, 0.8);
-    flash.fillCircle(x, y, 30);
-    flash.setDepth(200);
-
-    this.tweens.add({
-      targets: flash,
-      alpha: 0,
-      scale: 1.5,
-      duration: 200,
-      onComplete: () => flash.destroy(),
-    });
-  }
-
-  private showDangerWarning(): void {
-    this.dangerWarning.setAlpha(1);
-    this.tweens.add({
-      targets: this.dangerWarning,
-      alpha: 0,
-      duration: 200,
-      yoyo: true,
-      repeat: 3,
-    });
-  }
-
-  private showAnnouncement(text: string): void {
-    const announcement = this.add.text(GAME_CONFIG.canvasWidth / 2, 400, text, {
-      fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: '28px',
-      color: '#f4e8d0',
-      stroke: '#1a1a1a',
-      strokeThickness: 4,
-    });
-    announcement.setOrigin(0.5);
-    announcement.setDepth(500);
-
-    this.tweens.add({
-      targets: announcement,
-      y: 350,
-      alpha: 0,
-      duration: 1500,
-      ease: 'Quad.easeOut',
-      onComplete: () => announcement.destroy(),
-    });
-  }
-
-  private showResult(winner: 'player' | 'opponent' | 'draw'): void {
-    this.phase = 'result';
-
-    const title = this.resultScreen.list.find((obj) => obj.getData('type') === 'title') as Phaser.GameObjects.Text;
-
-    if (winner === 'player') {
-      title.setText('胜利！');
-      title.setColor('#4caf50');
-    } else if (winner === 'opponent') {
-      title.setText('失败');
-      title.setColor('#f44336');
-    } else {
-      title.setText('平局');
-      title.setColor('#ff9800');
-    }
-
-    this.resultScreen.setVisible(true);
-  }
-
-  private onRecruitClick(): void {
-    if (this.phase !== 'playing') return;
-
-    const tile = this.engine.recruit(false);
-    if (!tile) {
-      this.showAnnouncement('馒头不足或槽位已满');
-    }
   }
 
   private onPointerDown(pointer: Phaser.Input.Pointer): void {
     if (this.phase !== 'playing') return;
 
+    const state = this.engine.getState();
+
+    for (let i = 0; i < this.holdingSlotContainers.length; i++) {
+      const slotContainer = this.holdingSlotContainers[i];
+      const tile = state.player.holdingSlots[i];
+
+      if (!tile) continue;
+
+      const sprite = this.tileSprites.get(tile.id);
+      if (!sprite) continue;
+
+      const bounds = sprite.container.getBounds();
+      if (bounds.contains(pointer.x, pointer.y)) {
+        this.draggingTile = sprite;
+        this.dragOrigin = { x: sprite.container.x, y: sprite.container.y };
+        sprite.container.setDepth(200);
+        return;
+      }
+    }
+
     for (const [id, sprite] of this.tileSprites) {
+      const tile = state.player.tiles.find((t) => t.id === id);
+      if (!tile || !tile.position) continue;
+
       const bounds = sprite.container.getBounds();
       if (bounds.contains(pointer.x, pointer.y)) {
         this.draggingTile = sprite;
@@ -854,229 +1228,157 @@ export class GameScene extends Phaser.Scene {
     this.draggingTile.container.setPosition(pointer.x, pointer.y);
 
     this.dragLine.clear();
-    this.dragLine.lineStyle(2, 0x888888, 0.5);
-    this.dragLine.lineBetween(this.dragOrigin.x, this.dragOrigin.y, pointer.x, pointer.y);
+    this.dragLine.lineStyle(2, 0xd4a537, 0.6);
+
+    const dashLength = 8;
+    const gapLength = 6;
+    const dx = pointer.x - this.dragOrigin.x;
+    const dy = pointer.y - this.dragOrigin.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const angle = Math.atan2(dy, dx);
+
+    let drawn = 0;
+    while (drawn < dist) {
+      const startX = this.dragOrigin.x + Math.cos(angle) * drawn;
+      const startY = this.dragOrigin.y + Math.sin(angle) * drawn;
+      const endDist = Math.min(drawn + dashLength, dist);
+      const endX = this.dragOrigin.x + Math.cos(angle) * endDist;
+      const endY = this.dragOrigin.y + Math.sin(angle) * endDist;
+
+      this.dragLine.beginPath();
+      this.dragLine.moveTo(startX, startY);
+      this.dragLine.lineTo(endX, endY);
+      this.dragLine.strokePath();
+
+      drawn += dashLength + gapLength;
+    }
+
+    this.clearHighlights();
+    this.highlightValidCells(pointer);
+  }
+
+  private highlightValidCells(pointer: Phaser.Input.Pointer): void {
+    const state = this.engine.getState();
+    const draggingTile = state.player.tiles.find((t) => t.id === this.draggingTile?.id) ||
+      state.player.holdingSlots.find((t) => t?.id === this.draggingTile?.id);
+
+    if (!draggingTile) return;
+
+    this.playerCells.forEach((cellContainer) => {
+      const col = cellContainer.getData('col');
+      const row = cellContainer.getData('row');
+      const isPath = cellContainer.getData('isPath');
+
+      if (isPath) return;
+
+      const cell = state.player.cells.find((c) => c.position.col === col && c.position.row === row);
+      if (!cell || !cell.isUnlocked) return;
+
+      const cellX = GAME_CONFIG.playerGridStartX + col * GAME_CONFIG.cellSize;
+      const cellY = GAME_CONFIG.playerGridStartY + row * GAME_CONFIG.cellSize;
+      const cellSize = GAME_CONFIG.cellSize;
+
+      const highlight = this.add.graphics();
+      highlight.setDepth(90);
+
+      if (cell.tileId) {
+        const existingTile = state.player.tiles.find((t) => t.id === cell.tileId);
+        if (existingTile && existingTile.type === draggingTile.type && existingTile.level === draggingTile.level && existingTile.level < 5) {
+          highlight.fillStyle(0x4caf50, 0.4);
+          highlight.fillRect(cellX, cellY, cellSize, cellSize);
+          highlight.lineStyle(3, 0x4caf50);
+          highlight.strokeRect(cellX, cellY, cellSize, cellSize);
+        }
+      } else {
+        highlight.fillStyle(0xffd700, 0.2);
+        highlight.fillRect(cellX, cellY, cellSize, cellSize);
+        highlight.lineStyle(2, 0xffd700, 0.6);
+        highlight.strokeRect(cellX, cellY, cellSize, cellSize);
+      }
+
+      this.highlightedCells.push(highlight);
+    });
+  }
+
+  private clearHighlights(): void {
+    this.highlightedCells.forEach((h) => h.destroy());
+    this.highlightedCells = [];
   }
 
   private onPointerUp(pointer: Phaser.Input.Pointer): void {
     if (!this.draggingTile || !this.dragOrigin) return;
 
     this.dragLine.clear();
+    this.clearHighlights();
 
+    const gridPos = this.screenToGrid(pointer.x, pointer.y);
     const state = this.engine.getState();
-    const draggedTileState = state.player.tiles.find((t) => t.id === this.draggingTile!.id);
 
-    let handled = false;
+    if (gridPos) {
+      const cell = state.player.cells.find(
+        (c) => c.position.col === gridPos.col && c.position.row === gridPos.row
+      );
 
-    for (const [id, sprite] of this.tileSprites) {
-      if (id === this.draggingTile.id) continue;
+      if (cell && cell.isUnlocked && !cell.isPath) {
+        const existingTile = cell.tileId ? state.player.tiles.find((t) => t.id === cell.tileId) : null;
+        const draggingTileData = state.player.tiles.find((t) => t.id === this.draggingTile!.id) ||
+          state.player.holdingSlots.find((t) => t?.id === this.draggingTile!.id);
 
-      const bounds = sprite.container.getBounds();
-      if (bounds.contains(pointer.x, pointer.y)) {
-        const targetTileState = state.player.tiles.find((t) => t.id === id);
-        if (
-          draggedTileState &&
-          targetTileState &&
-          draggedTileState.type === targetTileState.type &&
-          draggedTileState.char === targetTileState.char &&
-          draggedTileState.level === targetTileState.level &&
-          draggedTileState.level < MAX_TILE_LEVEL
-        ) {
-          this.engine.mergeTiles(draggedTileState.id, targetTileState.id, false);
-          handled = true;
-        }
-        break;
-      }
-    }
+        if (existingTile && draggingTileData &&
+          existingTile.type === draggingTileData.type &&
+          existingTile.level === draggingTileData.level &&
+          existingTile.level < 5 &&
+          existingTile.id !== draggingTileData.id) {
 
-    if (!handled) {
-      for (const cell of this.playerCells) {
-        if (cell.getData('isPath')) continue;
-
-        const bounds = cell.getBounds();
-        if (bounds.contains(pointer.x, pointer.y)) {
-          const pos = cell.getData('cellPos') as GridPosition;
-          const cellState = state.player.cells.find(
-            (c) => c.position.col === pos.col && c.position.row === pos.row
-          );
-
-          if (cellState && !cellState.tileId && !cellState.isPath && draggedTileState) {
-            const success = this.engine.placeTile(draggedTileState.id, pos, false);
-            if (success) {
-              const worldPos = this.engine.gridToWorld(pos, false);
-
-              if (this.draggingTile.slotIndex !== undefined) {
-                const slotIdx = state.player.holdingSlots.findIndex((s) => s === null);
-              }
-
-              this.tweens.add({
-                targets: this.draggingTile.container,
-                x: worldPos.x,
-                y: worldPos.y,
-                duration: GAME_CONFIG.animation.tileSnapDuration,
-                ease: 'Back.easeOut',
-              });
-
-              this.draggingTile.slotIndex = undefined;
-              handled = true;
-            }
+          const success = this.engine.mergeTiles(draggingTileData.id, existingTile.id, false);
+          if (success) {
+            this.draggingTile.container.destroy();
+            this.tileSprites.delete(this.draggingTile.id);
+            this.draggingTile = null;
+            this.dragOrigin = null;
+            return;
           }
-          break;
+        }
+
+        if (!cell.tileId) {
+          const success = this.engine.placeTile(this.draggingTile.id, gridPos, false);
+          if (success) {
+            this.draggingTile.container.setDepth(100);
+            this.draggingTile = null;
+            this.dragOrigin = null;
+            return;
+          }
         }
       }
     }
 
-    if (!handled) {
-      this.tweens.add({
-        targets: this.draggingTile.container,
-        x: this.dragOrigin.x,
-        y: this.dragOrigin.y,
-        duration: 150,
-        ease: 'Quad.easeOut',
-      });
-    }
+    this.tweens.add({
+      targets: this.draggingTile.container,
+      x: this.dragOrigin.x,
+      y: this.dragOrigin.y,
+      duration: 150,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        if (this.draggingTile) {
+          this.draggingTile.container.setDepth(100);
+        }
+      },
+    });
 
-    this.draggingTile.container.setDepth(100);
     this.draggingTile = null;
     this.dragOrigin = null;
   }
 
-  update(_time: number, delta: number): void {
-    if (this.phase !== 'playing' || !this.engine) return;
+  private screenToGrid(x: number, y: number): GridPosition | null {
+    const { playerGridStartX, playerGridStartY, cellSize, gridCols, gridRows } = GAME_CONFIG;
 
-    this.engine.update(delta);
-    this.updateUI();
-    this.updateEnemySprites(false);
-    this.updateEnemySprites(true);
-    this.updateProjectileSprites();
-    this.updateOpponentTiles();
-  }
+    const col = Math.floor((x - playerGridStartX) / cellSize);
+    const row = Math.floor((y - playerGridStartY) / cellSize);
 
-  private updateUI(): void {
-    const state = this.engine.getState();
-    this.bunsText.setText(`${state.player.buns}`);
-  }
-
-  private updateEnemySprites(isOpponent: boolean): void {
-    const state = this.engine.getState();
-    const enemies = isOpponent ? state.opponentEnemies : state.enemies;
-    const sprites = isOpponent ? this.opponentEnemySprites : this.enemySprites;
-
-    const existingIds = new Set(enemies.map((e) => e.id));
-
-    sprites.forEach((sprite, id) => {
-      if (!existingIds.has(id)) {
-        sprite.container.destroy();
-        sprites.delete(id);
-      }
-    });
-
-    enemies.forEach((enemy) => {
-      let sprite = sprites.get(enemy.id);
-
-      if (!sprite) {
-        sprite = this.createEnemySprite(enemy, isOpponent);
-        sprites.set(enemy.id, sprite);
-      }
-
-      sprite.container.setPosition(enemy.position.x, enemy.position.y);
-
-      const healthPct = Math.max(0, enemy.health / enemy.maxHealth);
-      sprite.healthBar.setScale(healthPct, 1);
-    });
-  }
-
-  private createEnemySprite(enemy: EnemyState, isOpponent: boolean): EnemySprite {
-    const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : 1;
-    const size = (enemy.isBoss ? 36 : 24) * scale;
-
-    const container = this.add.container(enemy.position.x, enemy.position.y);
-    container.setDepth(50);
-
-    const bg = this.add.rectangle(0, 0, size, size, Phaser.Display.Color.HexStringToColor(enemy.color).color);
-    bg.setStrokeStyle(1, 0x000000);
-
-    const text = this.add.text(0, 0, enemy.char, {
-      fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: `${Math.floor((enemy.isBoss ? 20 : 14) * scale)}px`,
-      color: '#ffffff',
-      stroke: '#000000',
-      strokeThickness: 1,
-    });
-    text.setOrigin(0.5);
-
-    const healthBarBg = this.add.rectangle(0, -size / 2 - 4, size, 3, 0x333333);
-    const healthBar = this.add.rectangle(0, -size / 2 - 4, size, 3, 0x4caf50);
-
-    container.add([bg, text, healthBarBg, healthBar]);
-
-    return { container, healthBar, id: enemy.id };
-  }
-
-  private updateProjectileSprites(): void {
-    const state = this.engine.getState();
-    const allProjectiles = [...state.projectiles, ...state.opponentProjectiles];
-
-    const existingIds = new Set(allProjectiles.map((p) => p.id));
-
-    this.projectileSprites.forEach((sprite, id) => {
-      if (!existingIds.has(id)) {
-        sprite.destroy();
-        this.projectileSprites.delete(id);
-      }
-    });
-
-    allProjectiles.forEach((proj) => {
-      let sprite = this.projectileSprites.get(proj.id);
-
-      if (!sprite) {
-        sprite = this.createProjectileSprite(proj.tileType);
-        this.projectileSprites.set(proj.id, sprite);
-      }
-
-      sprite.setPosition(proj.position.x, proj.position.y);
-    });
-  }
-
-  private createProjectileSprite(tileType?: string): Phaser.GameObjects.Container {
-    const container = this.add.container(0, 0);
-    container.setDepth(75);
-
-    let g = this.add.graphics();
-
-    if (tileType === 'bow') {
-      g.fillStyle(0x8b4513, 1);
-      g.fillTriangle(0, -6, -3, 6, 3, 6);
-    } else {
-      g.fillStyle(0x333333, 1);
-      g.fillCircle(0, 0, 4);
+    if (col >= 0 && col < gridCols && row >= 0 && row < gridRows) {
+      return { col, row };
     }
 
-    container.add(g);
-    return container;
-  }
-
-  private updateOpponentTiles(): void {
-    const state = this.engine.getState();
-
-    state.opponent.tiles.forEach((tile) => {
-      if (!tile.position) return;
-
-      let sprite = this.opponentTileSprites.get(tile.id);
-      if (!sprite) {
-        sprite = this.createTileSprite(tile, true);
-        const pos = this.engine.gridToWorld(tile.position, true);
-        sprite.container.setPosition(pos.x, pos.y);
-        this.opponentTileSprites.set(tile.id, sprite);
-      }
-    });
-
-    const placedIds = new Set(state.opponent.tiles.filter((t) => t.position).map((t) => t.id));
-    this.opponentTileSprites.forEach((sprite, id) => {
-      if (!placedIds.has(id)) {
-        sprite.container.destroy();
-        this.opponentTileSprites.delete(id);
-      }
-    });
+    return null;
   }
 }
