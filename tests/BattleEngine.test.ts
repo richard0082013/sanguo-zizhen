@@ -544,6 +544,7 @@ describe('BattleEngine', () => {
     });
 
     it('should have same enemy types in player and opponent waves', () => {
+      engine.getState().opponent.buns = 0; // Compare spawns without independent AI kills.
       engine.startNextWave();
 
       for (let i = 0; i < 200; i++) {

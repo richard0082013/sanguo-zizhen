@@ -18,9 +18,9 @@ export const TILE_CONFIGS: Record<Exclude<TileType, 'general' | 'shovel'>, TileC
     char: '刀',
     name: '刀兵',
     color: '#CD5C5C',
-    attackRange: 60,
+    attackRange: 75,
     attackSpeed: 1000,
-    baseDamage: 15,
+    baseDamage: 40,
     isRanged: false,
   },
   spear: {
@@ -30,7 +30,7 @@ export const TILE_CONFIGS: Record<Exclude<TileType, 'general' | 'shovel'>, TileC
     color: '#4682B4',
     attackRange: 110,
     attackSpeed: 1200,
-    baseDamage: 18,
+    baseDamage: 44,
     isRanged: false,
   },
   bow: {
@@ -40,7 +40,7 @@ export const TILE_CONFIGS: Record<Exclude<TileType, 'general' | 'shovel'>, TileC
     color: '#228B22',
     attackRange: 150,
     attackSpeed: 1500,
-    baseDamage: 12,
+    baseDamage: 40,
     isRanged: true,
   },
   cavalry: {
@@ -48,9 +48,9 @@ export const TILE_CONFIGS: Record<Exclude<TileType, 'general' | 'shovel'>, TileC
     char: '骑',
     name: '骑兵',
     color: '#DAA520',
-    attackRange: 60,
+    attackRange: 75,
     attackSpeed: 800,
-    baseDamage: 20,
+    baseDamage: 48,
     isRanged: false,
   },
 };

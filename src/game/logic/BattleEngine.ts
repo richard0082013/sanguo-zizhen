@@ -644,7 +644,10 @@ export class BattleEngine {
             opponent.holdingSlots[pendingSlotIndex] = null;
             opponent.tiles = opponent.tiles.filter((t) => t.id !== tile.id);
           } else {
-            const cell = this.opponentRng.pick(emptyCells);
+            const range = getTileRange(tile.type, tile.generalId);
+            const coverage = (c: CellState) => GAME_CONFIG.pathCells.filter(p => Math.hypot(p.row-c.position.row,p.col-c.position.col)*GAME_CONFIG.cellSize <= range).length;
+            emptyCells.sort((a,b)=>coverage(b)-coverage(a)||b.position.col-a.position.col);
+            const cell = emptyCells[0];
             const success = this.placeTile(tile.id, cell.position, true);
             if (success) {
               opponent.holdingSlots[pendingSlotIndex] = null;
@@ -691,6 +694,8 @@ export class BattleEngine {
 
     if (playerDone && opponentDone && noMoreSpawns) {
       this.state.isWaveActive = false;
+      this.state.player.buns += GAME_CONFIG.waveClearBonus;
+      this.state.opponent.buns += GAME_CONFIG.waveClearBonus;
       this.emit({ type: 'WAVE_COMPLETED', waveNumber: this.state.currentWave });
 
       if (this.state.currentWave < WAVES.length) {
@@ -791,7 +796,9 @@ export class BattleEngine {
     }
 
     if (selectedType === 'general') {
-      char = rng.pick(this.generalChars);
+      const partners = player.tiles.filter(t=>t.position && t.type==='general' && !t.generalId)
+        .flatMap(t=>GENERALS.filter(g=>g.name.startsWith(t.char) && g.name.length>t.char.length).map(g=>g.name[t.char.length]));
+      char = partners.length && rng.next() < GAME_CONFIG.namePartnerChance ? rng.pick(partners) : rng.pick(this.generalChars);
     } else if (selectedType === 'shovel') {
       char = SHOVEL_CONFIG.char;
     } else {
@@ -811,9 +818,9 @@ export class BattleEngine {
       stunnedUntil: 0,
     };
 
-    if (selectedType === 'spear' && rng.next() < 0.45) {
+    if (selectedType === 'spear' && rng.next() < GAME_CONFIG.weaponRecruitChance) {
       tile.weapon = rng.pick(['fire', 'ice', 'thunder', 'poison'] as const);
-      tile.char = {fire:'火', ice:'冰', thunder:'雷', poison:'毒'}[tile.weapon];
+
     }
     player.tiles.push(tile);
     player.holdingSlots[emptySlotIndex] = tile;
@@ -826,7 +833,10 @@ export class BattleEngine {
   discardTile(tileId: string, isOpponent = false): boolean {
     const player = isOpponent ? this.state.opponent : this.state.player;
     const tile = player.tiles.find(t => t.id === tileId);
-    if (!tile || tile.position) return false;
+    if (!tile) return false;
+    player.cells.forEach(c => { if (c.tileId === tileId) c.tileId = null; });
+    player.activeGenerals = player.activeGenerals.filter(g => !g.tileIds.includes(tileId));
+    if (tile.type !== 'shovel') player.buns += Math.floor(GAME_CONFIG.baseRecruitCost * Math.pow(2, tile.level - 1) * 0.4);
     player.holdingSlots = player.holdingSlots.map(t => t?.id === tileId ? null : t);
     player.tiles = player.tiles.filter(t => t.id !== tileId);
     return true;
@@ -837,10 +847,7 @@ export class BattleEngine {
     const shovel = player.holdingSlots.find(t => t?.id === shovelId && t.type === 'shovel');
     const target = player.tiles.find(t => t.id === targetId && t.position);
     if (!shovel || !target) return false;
-    player.cells.forEach(c => { if (c.tileId === targetId) c.tileId = null; });
-    player.buns = Math.min(GAME_CONFIG.bunsCapacity, player.buns + GAME_CONFIG.baseRecruitCost * target.level);
-    player.tiles = player.tiles.filter(t => t.id !== targetId);
-    player.activeGenerals = player.activeGenerals.filter(g => !g.tileIds.includes(targetId));
+    this.discardTile(targetId);
     return this.discardTile(shovelId);
   }
 
@@ -898,7 +905,7 @@ export class BattleEngine {
       level: tile1.level + 1,
       position: tile2.position || tile1.position,
       generalId: tile1.generalId,
-      weapon: tile1.weapon,
+      weapon: tile1.weapon || tile2.weapon,
       lastAttackTime: 0,
       attackSpeedBuff: 0,
       damageBuff: 0,

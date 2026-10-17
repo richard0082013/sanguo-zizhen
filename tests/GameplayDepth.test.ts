@@ -5,6 +5,19 @@ import {getTileDamage,getTileAttackSpeed,getTileRange} from '../src/game/config/
 import type {TileState} from '../src/game/logic/types';
 const tile=(id:string,char:string,type:TileState['type']='general',level=1):TileState=>({id,char,type,level,position:null,lastAttackTime:0,attackSpeedBuff:0,damageBuff:0,isStunned:false,stunnedUntil:0});
 describe('gameplay depth',()=>{
+ it('has no passive income and no practical savings cap',()=>{const e=new BattleEngine(1);e.getState().player.buns=200;e.update(1000);expect(e.getState().player.buns).toBe(200);});
+ it('melee reaches adjacent road cells',()=>{expect(getTileRange('sword')).toBe(75);expect(getTileRange('cavalry')).toBe(75);});
+ it('pays kills above the old cap and pays four buns on wave clear',()=>{
+  const e=new BattleEngine(1),s=e.getState();s.player.buns=200;e.startNextWave();e.update(1);
+  s.enemies[0].health=0;e.update(1);expect(s.player.buns).toBe(203);
+  e.update(6000);s.enemies.forEach(enemy=>enemy.health=0);s.opponentEnemies.forEach(enemy=>enemy.health=0);
+  const before=s.player.buns;const rewards=s.enemies.reduce((sum,enemy)=>sum+enemy.reward,0);
+  e.update(1);expect(s.player.buns).toBe(before+rewards+4);
+ });
+ it('selling a partial name frees its board cell and gives a partial refund',()=>{
+  const e=new BattleEngine(1),p=e.getState().player,t=tile('partial','诸葛');p.tiles.push(t);e.placeTile(t.id,{row:0,col:0},false);
+  const before=p.buns;expect(e.discardTile(t.id)).toBe(true);expect(p.buns).toBe(before+4);expect(p.cells.some(c=>c.tileId===t.id)).toBe(false);expect(e.discardTile(t.id)).toBe(false);
+ });
  it('starts with enough buns for exactly two recruits',()=>{
   const e=new BattleEngine(1);expect(e.recruit(false)).not.toBeNull();expect(e.recruit(false)).not.toBeNull();expect(e.recruit(false)).toBeNull();
  });
@@ -53,6 +66,19 @@ describe('gameplay depth',()=>{
   if(weapon==='fire')expect(enemy.isBurning).toBe(true);
   if(weapon==='poison'){expect(enemy.poisonDamage).toBe(48);const hp=enemy.health;e.update(100);expect(enemy.health).toBeLessThan(hp);}
   else expect(enemy.health).toBeLessThan(before);
+ });
+ it('biases name draws toward a placed partner without scripting recruits',()=>{
+  let matching=0,names=0;
+  for(let seed=1;seed<=1000;seed++){
+   const e=new BattleEngine(seed),p=e.getState().player;
+   const half=tile('half','吕');p.tiles.push(half);e.placeTile(half.id,{row:0,col:0},false);
+   const draw=e.recruit(false)!;if(draw.type==='general'){names++;if(draw.char==='布')matching++;}
+  }
+  expect(names).toBeGreaterThan(90);expect(matching/names).toBeGreaterThan(0.55);expect(matching/names).toBeLessThan(0.85);
+ });
+ it('merges elemental and plain spears while preserving an equipped destination',()=>{
+  const e=new BattleEngine(5),p=e.getState().player,a=tile('a','枪','spear'),b=tile('b','枪','spear');b.weapon='ice';p.tiles.push(a,b);e.placeTile(b.id,{row:0,col:0},false);
+  const merged=e.mergeTiles(a.id,b.id,false)!;expect(merged.level).toBe(2);expect(merged.weapon).toBe('ice');expect(merged.char).toBe('枪');
  });
  it('does not script the opening Zhou Yu pair',()=>{expect(Array.from({length:12},(_,i)=>new BattleEngine(i+1).recruit(false)!.char)).not.toEqual(Array(12).fill('周'));});
 });

@@ -587,15 +587,15 @@ export class VFXManager {
   }
 
   private mist(x:number,y:number,color:number,count=24,radius=70): void {
-    const glow=this.scene.add.image(x,y,'fire_glow').setTint(color).setDisplaySize(radius*2,radius*2).setAlpha(0.55).setBlendMode(Phaser.BlendModes.ADD).setDepth(280);
+    const glow=this.scene.add.image(x,y,'fire_glow').setTint(color).setDisplaySize(radius*2,radius*2).setAlpha(0.35).setBlendMode(Phaser.BlendModes.ADD).setDepth(280);
     this.scene.tweens.add({targets:glow,alpha:0,scaleX:glow.scaleX*1.6,scaleY:glow.scaleY*1.6,duration:1100,onComplete:()=>glow.destroy()});
-    const emitter=this.scene.add.particles(x,y,'particle_spark',{speed:{min:15,max:radius},angle:{min:0,max:360},lifespan:1100,scale:{start:0.8,end:0},alpha:{start:0.85,end:0},tint:color,blendMode:Phaser.BlendModes.ADD,emitting:false}).setDepth(285);
+    const emitter=this.scene.add.particles(x,y,'particle_spark',{speed:{min:15,max:radius},angle:{min:0,max:360},lifespan:1100,scale:{start:0.8,end:0},alpha:{start:0.4,end:0},tint:color,blendMode:Phaser.BlendModes.ADD,emitting:false}).setDepth(285);
     emitter.explode(count);this.scene.time.delayedCall(1300,()=>emitter.destroy());
   }
 
   private ribbon(points:Position[],color:number,delay=0): void {
     points.forEach((p,i)=>this.scene.time.delayedCall(delay+i*12,()=>{
-      const dot=this.scene.add.image(p.x,p.y,'fire_glow').setTint(color).setDisplaySize(23,23).setBlendMode(Phaser.BlendModes.ADD).setDepth(290);
+      const dot=this.scene.add.image(p.x,p.y,'fire_glow').setTint(color).setDisplaySize(18,18).setAlpha(0.4).setBlendMode(Phaser.BlendModes.ADD).setDepth(290);
       this.scene.tweens.add({targets:dot,alpha:0,duration:850,onComplete:()=>dot.destroy()});
     }));
   }
@@ -615,8 +615,22 @@ export class VFXManager {
   weaponEffect(weapon:string,position:Position,targets:Position[],path:Position[]): void {
     if(weapon==='fire'){this.fireDragon(path,2000);return;}
     if(weapon==='thunder'){this.lightningChain([position,...targets]);targets.forEach(t=>this.mist(t.x,t.y,0x99ccff,15,40));return;}
-    const color=weapon==='ice'?0x88eeff:0x85ff59;
-    targets.forEach(t=>{this.mist(t.x,t.y,color,30,weapon==='ice'?45:65);if(weapon==='ice')for(let k=0;k<6;k++)this.ribbon(Array.from({length:12},(_,i)=>({x:t.x+Math.cos(k*Math.PI/3)*i*3,y:t.y+Math.sin(k*Math.PI/3)*i*3})),color);});
+    targets.forEach(t=>{
+      const effect=this.scene.add.graphics().setPosition(t.x,t.y).setDepth(280);
+      if(weapon==='ice'){
+        effect.fillStyle(0x5bcce8,0.22).fillCircle(0,0,29);
+        effect.lineStyle(3,0x126caa,0.9).strokeCircle(0,0,25);
+        for(let k=0;k<6;k++){
+          const a=k*Math.PI/3, x=Math.cos(a), y=Math.sin(a);
+          effect.lineStyle(3,0xbcefff,0.95).lineBetween(x*7,y*7,x*30,y*30);
+          for(const side of [-1,1])effect.lineBetween(x*19,y*19,x*12+Math.cos(a+side*Math.PI/3)*9,y*12+Math.sin(a+side*Math.PI/3)*9);
+        }
+      }else{
+        for(let k=0;k<7;k++)effect.fillStyle(k%2?0x449d25:0x246d27,0.32).fillCircle(Math.cos(k*2.4)*24,Math.sin(k*2.4)*13,21);
+        effect.lineStyle(2,0x94dc4e,0.7).strokeCircle(-12,-12,5).strokeCircle(14,-19,4).strokeCircle(4,9,6);
+      }
+      this.scene.tweens.add({targets:effect,alpha:0,scale:1.3,delay:600,duration:1000,onComplete:()=>effect.destroy()});
+    });
   }
 
   generalSkillEffect(id:string,position:Position,targets:Position[]=[]): void {

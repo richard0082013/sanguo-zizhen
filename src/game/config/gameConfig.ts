@@ -100,28 +100,31 @@ export const GAME_CONFIG = {
 
   // Two opening recruits cost 10 + 12; a third needs earned income.
   initialBuns: 30,
-  bunsCapacity: 149,
-  incomePerSecond: 18,
+  bunsCapacity: Number.MAX_SAFE_INTEGER,
+  incomePerSecond: 0,
+  waveClearBonus: 4,
+  weaponRecruitChance: 0.65,
+  namePartnerChance: 0.65,
   baseRecruitCost: 10,
   recruitCostIncrement: 2,
-  maxRecruitCost: 28,
+  maxRecruitCost: 18,
 
   adouLives: 3,
 
-  waveDelay: 12000,
+  waveDelay: 6000,
   betweenWaveDelay: 1500,
 
   recruitWeights: {
     sword: 25,
-    spear: 25,
+    spear: 40,
     bow: 20,
     cavalry: 15,
-    general: 35,
+    general: 18,
     shovel: 1,
   },
 
   levelColors: {
-    1: '#e8e5d9',
+    1: '#946027',
     2: '#7cb342',
     3: '#42a5f5',
     4: '#ab47bc',

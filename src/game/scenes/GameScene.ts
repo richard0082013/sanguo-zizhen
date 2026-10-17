@@ -793,7 +793,7 @@ export class GameScene extends Phaser.Scene {
     const color = Phaser.Display.Color.HexStringToColor(GAME_CONFIG.levelColors[tile.level as keyof typeof GAME_CONFIG.levelColors]).color;
     const bg = this.add.graphics();
     for (let y = 0; y < size; y++) {
-      const shade = Math.round(248 - y / size * 35);
+      const shade = Math.round(237 - y / size * 42);
       bg.fillStyle(Phaser.Display.Color.GetColor(shade, shade - 12, shade - 37));
       bg.fillRect(-size / 2, -size / 2 + y, size, 1);
     }
@@ -810,7 +810,7 @@ export class GameScene extends Phaser.Scene {
     }
     const badge = this.add.rectangle(tile.generalId ? 0 : -size/2 + 9*scale, tile.generalId ? 14 : -size/2 + 10*scale, tile.generalId ? size-4 : 17*scale, 19*scale, 0xf4e6c4, 0.95);
     container.add(badge);
-    const charText = this.add.text(badge.x, badge.y, tile.char, {
+    const charText = this.add.text(badge.x, badge.y, tile.weapon ? {fire:'火',ice:'冰',thunder:'雷',poison:'毒'}[tile.weapon] : tile.char, {
       fontFamily: GAME_CONFIG.typography.brush, fontSize: `${15*scale}px`, color: '#302319',
     }).setOrigin(0.5);
     container.add(charText);

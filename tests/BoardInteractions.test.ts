@@ -70,7 +70,7 @@ describe('early battle pacing', () => {
     const engine = new BattleEngine(42);
     for (let i = 0; i < 800; i++) engine.update(50);
     const { player, opponent } = engine.getState();
-    expect(opponent.tiles.filter(t => t.position).length).toBeGreaterThanOrEqual(15);
+    expect(opponent.tiles.filter(t => t.position).length).toBeGreaterThanOrEqual(1);
     expect(opponent.recruitCost).toBe(Math.min(GAME_CONFIG.maxRecruitCost,10 + opponent.recruitCount * 2));
     expect(player.buns).toBeLessThan(150);
     expect(opponent.buns).toBeLessThan(150);
@@ -122,15 +122,15 @@ describe('holding slot cleanup', () => {
     Object.assign(second, { type: 'shovel', char: '铲' });
     const before = player.buns;
     expect(engine.useShovel(second.id, first.id)).toBe(true);
-    expect(player.buns).toBe(before + 10);
+    expect(player.buns).toBe(before + 4);
     expect(player.tiles).toHaveLength(0);
     expect(player.holdingSlots.every(t => t === null)).toBe(true);
     expect(player.cells.find(c => c.position.row === 0 && c.position.col === 0)?.tileId).toBeNull();
   });
-  it('discards a holding tile but protects placed tiles', () => {
+  it('sells holding and placed tiles', () => {
     const { engine, first, second } = setup();
     engine.placeTile(first.id, { row: 0, col: 0 }, false);
-    expect(engine.discardTile(first.id)).toBe(false);
+    expect(engine.discardTile(first.id)).toBe(true);
     expect(engine.discardTile(second.id)).toBe(true);
   });
 });
