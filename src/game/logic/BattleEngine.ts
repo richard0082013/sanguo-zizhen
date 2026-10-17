@@ -179,7 +179,7 @@ export class BattleEngine {
       damage: config.damage,
       rangedResist: config.rangedResist,
       meleeResist: config.meleeResist,
-      reward: config.reward,
+      reward: config.reward + Math.min(2, Math.floor((this.state.currentWave - 1) / 3)),
       color: config.color,
       isBoss: false,
       lastAbilityTime: 0,
@@ -654,6 +654,17 @@ export class BattleEngine {
             }
           }
         }
+      }
+    }
+
+    // Activate completed names immediately instead of waiting for a full board.
+    const letters = opponent.tiles.filter(t => t.position && t.type === 'general' && !t.generalId);
+    for (const incoming of letters) {
+      const destination = letters.find(t => t.id !== incoming.id &&
+        GENERALS.some(g => g.name.startsWith(t.char + incoming.char)));
+      if (destination) {
+        this.mergeTiles(incoming.id, destination.id, true);
+        return;
       }
     }
 

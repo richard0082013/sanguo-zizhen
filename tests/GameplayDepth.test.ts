@@ -1,5 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import {BattleEngine} from '../src/game/logic/BattleEngine';
+import {GAME_CONFIG} from '../src/game/config/gameConfig';
 import {GENERALS} from '../src/game/config/generals';
 import {getTileDamage,getTileAttackSpeed,getTileRange} from '../src/game/config/tiles';
 import type {TileState} from '../src/game/logic/types';
@@ -7,12 +8,30 @@ const tile=(id:string,char:string,type:TileState['type']='general',level=1):Tile
 describe('gameplay depth',()=>{
  it('has no passive income and no practical savings cap',()=>{const e=new BattleEngine(1);e.getState().player.buns=200;e.update(1000);expect(e.getState().player.buns).toBe(200);});
  it('melee reaches adjacent road cells',()=>{expect(getTileRange('sword')).toBe(75);expect(getTileRange('cavalry')).toBe(75);});
- it('pays kills above the old cap and pays four buns on wave clear',()=>{
+ it('pays kills above the old cap and pays six buns on wave clear',()=>{
   const e=new BattleEngine(1),s=e.getState();s.player.buns=200;e.startNextWave();e.update(1);
   s.enemies[0].health=0;e.update(1);expect(s.player.buns).toBe(203);
   e.update(6000);s.enemies.forEach(enemy=>enemy.health=0);s.opponentEnemies.forEach(enemy=>enemy.health=0);
   const before=s.player.buns;const rewards=s.enemies.reduce((sum,enemy)=>sum+enemy.reward,0);
-  e.update(1);expect(s.player.buns).toBe(before+rewards+4);
+  e.update(1);expect(s.player.buns).toBe(before+rewards+6);
+ });
+ it('scales ordinary kill rewards from three to five with the wave',()=>{
+  for (const [wave,reward] of [[1,3],[3,3],[4,4],[6,4],[7,5],[9,5]]) {
+   const e=new BattleEngine(1),s=e.getState();s.currentWave=wave-1;e.startNextWave();e.update(1);
+   expect(s.enemies.find(enemy=>!enemy.isBoss)?.reward).toBe(reward);
+  }
+ });
+ it('raises recruitment by one and caps the price at twenty-four',()=>{
+  const e=new BattleEngine(1),p=e.getState().player;
+  for(let i=0;i<20;i++) {p.buns=100;const t=e.recruit(false)!;expect(t).not.toBeNull();e.discardTile(t.id);expect(p.recruitCost).toBe(Math.min(24,11+i));}
+  expect(GAME_CONFIG.incomePerSecond).toBe(0);
+ });
+ it('AI activates complementary name characters before filling its board',()=>{
+  const e=new BattleEngine(1),p=e.getState().opponent;p.buns=0;
+  for(const [index,char] of ['张','飞'].entries()) {const t=tile('ai-'+index,char);p.tiles.push(t);e.placeTile(t.id,{row:0,col:6-index},true);}
+  e.update(500);
+  expect(p.tiles.some(t=>t.generalId==='zhangfei'&&t.position)).toBe(true);
+  expect(p.tiles).toHaveLength(1);
  });
  it('selling a partial name frees its board cell and gives a partial refund',()=>{
   const e=new BattleEngine(1),p=e.getState().player,t=tile('partial','诸葛');p.tiles.push(t);e.placeTile(t.id,{row:0,col:0},false);

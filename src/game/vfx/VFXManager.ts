@@ -615,18 +615,20 @@ export class VFXManager {
   weaponEffect(weapon:string,position:Position,targets:Position[],path:Position[]): void {
     if(weapon==='fire'){this.fireDragon(path,2000);return;}
     if(weapon==='thunder'){this.lightningChain([position,...targets]);targets.forEach(t=>this.mist(t.x,t.y,0x99ccff,15,40));return;}
-    targets.forEach(t=>{
+    // One elemental mark per nearby cluster keeps enemy silhouettes readable.
+    const marks = targets.filter((t,i)=>!targets.slice(0,i).some(p=>Math.hypot(p.x-t.x,p.y-t.y)<28));
+    marks.forEach(t=>{
       const effect=this.scene.add.graphics().setPosition(t.x,t.y).setDepth(280);
       if(weapon==='ice'){
-        effect.fillStyle(0x5bcce8,0.22).fillCircle(0,0,29);
-        effect.lineStyle(3,0x126caa,0.9).strokeCircle(0,0,25);
+        effect.fillStyle(0x5bcce8,0.12).fillCircle(0,0,29);
+        effect.lineStyle(2,0x126caa,0.65).strokeCircle(0,0,25);
         for(let k=0;k<6;k++){
           const a=k*Math.PI/3, x=Math.cos(a), y=Math.sin(a);
-          effect.lineStyle(3,0xbcefff,0.95).lineBetween(x*7,y*7,x*30,y*30);
+          effect.lineStyle(2,0xbcefff,0.65).lineBetween(x*7,y*7,x*30,y*30);
           for(const side of [-1,1])effect.lineBetween(x*19,y*19,x*12+Math.cos(a+side*Math.PI/3)*9,y*12+Math.sin(a+side*Math.PI/3)*9);
         }
       }else{
-        for(let k=0;k<7;k++)effect.fillStyle(k%2?0x449d25:0x246d27,0.32).fillCircle(Math.cos(k*2.4)*24,Math.sin(k*2.4)*13,21);
+        for(let k=0;k<7;k++)effect.fillStyle(k%2?0x449d25:0x246d27,0.14).fillCircle(Math.cos(k*2.4)*24,Math.sin(k*2.4)*13,21);
         effect.lineStyle(2,0x94dc4e,0.7).strokeCircle(-12,-12,5).strokeCircle(14,-19,4).strokeCircle(4,9,6);
       }
       this.scene.tweens.add({targets:effect,alpha:0,scale:1.3,delay:600,duration:1000,onComplete:()=>effect.destroy()});

@@ -793,8 +793,8 @@ export class GameScene extends Phaser.Scene {
     const color = Phaser.Display.Color.HexStringToColor(GAME_CONFIG.levelColors[tile.level as keyof typeof GAME_CONFIG.levelColors]).color;
     const bg = this.add.graphics();
     for (let y = 0; y < size; y++) {
-      const shade = Math.round(237 - y / size * 42);
-      bg.fillStyle(Phaser.Display.Color.GetColor(shade, shade - 12, shade - 37));
+      const shade = Math.round(250 - y / size * 25);
+      bg.fillStyle(Phaser.Display.Color.GetColor(shade, shade - 14, shade - 48));
       bg.fillRect(-size / 2, -size / 2 + y, size, 1);
     }
     bg.lineStyle(7, color, 0.22).strokeRoundedRect(-size/2, -size/2, size, size, 5);
@@ -802,7 +802,7 @@ export class GameScene extends Phaser.Scene {
     if (tile.generalId) bg.lineStyle(4, 0xffd368).strokeRoundedRect(-size/2,-size/2,size,size,5);
     container.add(bg);
     const general = tile.generalId ? GENERALS.find(g=>g.id===tile.generalId) : undefined;
-    const key = general ? 'general_' + general.id : 'icon_' + tile.type;
+    const key = general ? 'general_' + general.id : 'ink_' + tile.type;
     if (this.textures.exists(key)) {
       const icon = this.add.image(0, -2 * scale, key).setDisplaySize(size * 0.86, size * 0.86);
       if (!general) icon.setBlendMode(Phaser.BlendModes.MULTIPLY);

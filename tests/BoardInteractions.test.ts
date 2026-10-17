@@ -71,7 +71,7 @@ describe('early battle pacing', () => {
     for (let i = 0; i < 800; i++) engine.update(50);
     const { player, opponent } = engine.getState();
     expect(opponent.tiles.filter(t => t.position).length).toBeGreaterThanOrEqual(1);
-    expect(opponent.recruitCost).toBe(Math.min(GAME_CONFIG.maxRecruitCost,10 + opponent.recruitCount * 2));
+    expect(opponent.recruitCost).toBe(Math.min(GAME_CONFIG.maxRecruitCost,10 + opponent.recruitCount * GAME_CONFIG.recruitCostIncrement));
     expect(player.buns).toBeLessThan(150);
     expect(opponent.buns).toBeLessThan(150);
   });

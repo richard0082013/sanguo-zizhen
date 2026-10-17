@@ -98,21 +98,21 @@ export const GAME_CONFIG = {
 
   holdingSlots: 5,
 
-  // Two opening recruits cost 10 + 12; a third needs earned income.
+  // Two opening recruits cost 10 + 11; a third needs earned income.
   initialBuns: 30,
   bunsCapacity: Number.MAX_SAFE_INTEGER,
   incomePerSecond: 0,
-  waveClearBonus: 4,
+  waveClearBonus: 6,
   weaponRecruitChance: 0.65,
   namePartnerChance: 0.65,
   baseRecruitCost: 10,
-  recruitCostIncrement: 2,
-  maxRecruitCost: 18,
+  recruitCostIncrement: 1,
+  maxRecruitCost: 24,
 
   adouLives: 3,
 
   waveDelay: 6000,
-  betweenWaveDelay: 1500,
+  betweenWaveDelay: 2500,
 
   recruitWeights: {
     sword: 25,
