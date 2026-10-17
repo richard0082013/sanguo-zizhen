@@ -502,20 +502,19 @@ export class VFXManager {
 
     for (let i = 0; i < 5; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const dist = 5 + Math.random() * 15;
-      const size = 3 + Math.random() * 8;
+      const dist = 2 + Math.random() * 7;
+      const size = 1 + Math.random() * 3;
       const px = x + Math.cos(angle) * dist;
       const py = y + Math.sin(angle) * dist;
 
-      splat.fillStyle(0x1a1a1a, 0.9);
+      splat.fillStyle(0x1a1a1a, 0.35);
       splat.fillCircle(px, py, size);
     }
 
     this.scene.tweens.add({
       targets: splat,
       alpha: 0,
-      duration: 400,
-      delay: 100,
+      duration: 300,
       onComplete: () => splat.destroy(),
     });
   }

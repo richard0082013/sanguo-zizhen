@@ -28,7 +28,7 @@ describe('BattleEngine', () => {
       expect(state.player.cells).toHaveLength(expectedCells);
 
       const unlockedCells = state.player.cells.filter((c) => c.isUnlocked && !c.isPath);
-      const pathCells = GAME_CONFIG.playerPathCells.length;
+      const pathCells = GAME_CONFIG.pathCells.length;
       const expectedUnlocked = expectedCells - pathCells;
       expect(unlockedCells).toHaveLength(expectedUnlocked);
     });

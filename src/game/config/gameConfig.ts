@@ -1,3 +1,17 @@
+export const BOARD_PATH = [
+  { col: 6, row: 1 },
+  { col: 5, row: 1 },
+  { col: 4, row: 1 },
+  { col: 4, row: 2 },
+  { col: 4, row: 3 },
+  { col: 3, row: 3 },
+  { col: 2, row: 3 },
+  { col: 2, row: 2 },
+  { col: 2, row: 1 },
+  { col: 1, row: 1 },
+  { col: 0, row: 1 },
+];
+
 export const GAME_CONFIG = {
   canvasWidth: 450,
   canvasHeight: 800,
@@ -30,33 +44,7 @@ export const GAME_CONFIG = {
   opponentAdouX: 32,
   opponentAdouY: 111,
 
-  playerPathCells: [
-    { col: 6, row: 1 },
-    { col: 5, row: 1 },
-    { col: 4, row: 1 },
-    { col: 4, row: 2 },
-    { col: 4, row: 3 },
-    { col: 3, row: 3 },
-    { col: 2, row: 3 },
-    { col: 2, row: 2 },
-    { col: 2, row: 1 },
-    { col: 1, row: 1 },
-    { col: 0, row: 1 },
-  ],
-
-  opponentPathCells: [
-    { col: 6, row: 1 },
-    { col: 5, row: 1 },
-    { col: 4, row: 1 },
-    { col: 4, row: 2 },
-    { col: 4, row: 3 },
-    { col: 3, row: 3 },
-    { col: 2, row: 3 },
-    { col: 2, row: 2 },
-    { col: 2, row: 1 },
-    { col: 1, row: 1 },
-    { col: 0, row: 1 },
-  ],
+  pathCells: BOARD_PATH,
 
   assets: {
     backgrounds: {

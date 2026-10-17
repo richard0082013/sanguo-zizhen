@@ -55,6 +55,7 @@ export class GameScene extends Phaser.Scene {
   private resultScreen!: Phaser.GameObjects.Container;
   private dangerWarning!: Phaser.GameObjects.Text;
 
+  private selectedSlotId: string | null = null;
   private draggingTile: TileSprite | null = null;
   private dragOrigin: Position | null = null;
   private dragLine!: Phaser.GameObjects.Graphics;
@@ -267,9 +268,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createOpponentBoard(): void {
-    const { opponentGridStartX, opponentGridStartY, cellSize, opponentBoardScale, gridCols, gridRows, opponentPathCells } = GAME_CONFIG;
+    const { opponentGridStartX, opponentGridStartY, cellSize, opponentBoardScale, gridCols, gridRows, pathCells } = GAME_CONFIG;
     const scaledSize = cellSize * opponentBoardScale;
-    const pathSet = new Set(opponentPathCells.map((p) => `${p.col},${p.row}`));
+    const pathSet = new Set(pathCells.map((p) => `${p.col},${p.row}`));
 
     this.opponentAdou = this.createAdou(GAME_CONFIG.opponentAdouX, GAME_CONFIG.opponentAdouY, true);
 
@@ -302,8 +303,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createPlayerBoard(): void {
-    const { playerGridStartX, playerGridStartY, cellSize, gridCols, gridRows, playerPathCells } = GAME_CONFIG;
-    const pathSet = new Set(playerPathCells.map((p) => `${p.col},${p.row}`));
+    const { playerGridStartX, playerGridStartY, cellSize, gridCols, gridRows, pathCells } = GAME_CONFIG;
+    const pathSet = new Set(pathCells.map((p) => `${p.col},${p.row}`));
 
     this.playerAdou = this.createAdou(GAME_CONFIG.playerAdouX, GAME_CONFIG.playerAdouY, false);
 
@@ -724,7 +725,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getEnemyWorldPosition(enemy: EnemyState, isOpponent: boolean): Position {
-    const pathCells = isOpponent ? GAME_CONFIG.opponentPathCells : GAME_CONFIG.playerPathCells;
+    const pathCells = GAME_CONFIG.pathCells;
     const startX = isOpponent ? GAME_CONFIG.opponentGridStartX : GAME_CONFIG.playerGridStartX;
     const startY = isOpponent ? GAME_CONFIG.opponentGridStartY : GAME_CONFIG.playerGridStartY;
     const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : GAME_CONFIG.boardScale;
@@ -971,7 +972,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getPathWorldPositions(isOpponent: boolean): Position[] {
-    const pathCells = isOpponent ? GAME_CONFIG.opponentPathCells : GAME_CONFIG.playerPathCells;
+    const pathCells = GAME_CONFIG.pathCells;
     const startX = isOpponent ? GAME_CONFIG.opponentGridStartX : GAME_CONFIG.playerGridStartX;
     const startY = isOpponent ? GAME_CONFIG.opponentGridStartY : GAME_CONFIG.playerGridStartY;
     const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : GAME_CONFIG.boardScale;
@@ -1072,9 +1073,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showAnnouncement(message: string): void {
-    const text = this.add.text(GAME_CONFIG.canvasWidth / 2, GAME_CONFIG.canvasHeight / 2, message, {
+    const text = this.add.text(GAME_CONFIG.canvasWidth / 2, GAME_CONFIG.riverY + 15, message, {
       fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: '36px',
+      fontSize: '23px',
       color: '#f4e8d0',
       stroke: '#8b4513',
       strokeThickness: 4,
@@ -1094,7 +1095,7 @@ export class GameScene extends Phaser.Scene {
         this.tweens.add({
           targets: text,
           alpha: 0,
-          y: text.y - 50,
+          y: text.y,
           delay: 800,
           duration: 400,
           onComplete: () => text.destroy(),
@@ -1224,12 +1225,23 @@ export class GameScene extends Phaser.Scene {
       const sprite = this.tileSprites.get(tile.id);
       if (!sprite) continue;
 
-      const bounds = sprite.container.getBounds();
+      const bounds = new Phaser.Geom.Rectangle(slotContainer.x - 25, slotContainer.y - 25, 50, 50);
       if (bounds.contains(pointer.x, pointer.y)) {
         this.draggingTile = sprite;
         this.dragOrigin = { x: sprite.container.x, y: sprite.container.y };
         this.tweens.killTweensOf(sprite.container);
         sprite.container.setDepth(600).setScale(1.18);
+        return;
+      }
+    }
+
+    if (this.selectedSlotId && this.screenToGrid(pointer.x, pointer.y)) {
+      const sprite = this.tileSprites.get(this.selectedSlotId);
+      if (sprite) {
+        this.tweens.killTweensOf(sprite.container);
+        this.draggingTile = sprite;
+        this.dragOrigin = { x: sprite.container.x, y: sprite.container.y };
+        this.selectedSlotId = null;
         return;
       }
     }
@@ -1337,6 +1349,9 @@ export class GameScene extends Phaser.Scene {
   private onPointerUp(pointer: Phaser.Input.Pointer): void {
     if (!this.draggingTile || !this.dragOrigin) return;
 
+    const tappedSlot = this.engine.getState().player.holdingSlots.some(t => t?.id === this.draggingTile!.id)
+      && Phaser.Math.Distance.Between(pointer.x, pointer.y, this.dragOrigin.x, this.dragOrigin.y) < 10;
+    this.selectedSlotId = tappedSlot ? this.draggingTile.id : null;
     this.draggingTile.container.setScale(1).setDepth(100);
     this.dragLine.clear();
     this.clearHighlights();
@@ -1396,6 +1411,10 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    if (tappedSlot) {
+      this.draggingTile.container.setScale(1.08);
+      this.highlightValidCells(pointer);
+    }
     this.tweens.add({
       targets: this.draggingTile.container,
       x: this.dragOrigin.x,

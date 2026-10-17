@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { GAME_CONFIG } from '../src/game/config/gameConfig';
 import { BattleEngine } from '../src/game/logic/BattleEngine';
 
 function setup() {
@@ -98,11 +99,17 @@ describe('shared enemy schedule', () => {
     expect(opponentEnemies[0].health).toBe(opponentHealth);
   });
 
-  it('rejects road placement on both boards', () => {
+  it('uses the same road cells on both boards and rejects every road placement', () => {
     const engine = new BattleEngine(42);
-    for (const opponent of [false, true]) {
-      const tile = engine.recruit(opponent)!;
-      expect(engine.placeTile(tile.id, { row: 1, col: 6 }, opponent)).toBe(false);
+    const { player, opponent } = engine.getState();
+    expect(player.cells.filter(c => c.isPath).map(c => c.position)).toEqual(
+      opponent.cells.filter(c => c.isPath).map(c => c.position));
+    expect(player.cells.filter(c => c.isPath)).toHaveLength(GAME_CONFIG.pathCells.length);
+    for (const isOpponent of [false, true]) {
+      const tile = engine.recruit(isOpponent)!;
+      for (const position of GAME_CONFIG.pathCells) {
+        expect(engine.placeTile(tile.id, position, isOpponent)).toBe(false);
+      }
     }
   });
 });

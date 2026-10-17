@@ -69,9 +69,9 @@ export class BattleEngine {
 
   private createPlayerState(): PlayerState {
     const cells: CellState[] = [];
-    const { gridCols, gridRows, playerPathCells } = GAME_CONFIG;
+    const { gridCols, gridRows, pathCells } = GAME_CONFIG;
 
-    const pathSet = new Set(playerPathCells.map((p) => `${p.col},${p.row}`));
+    const pathSet = new Set(pathCells.map((p) => `${p.col},${p.row}`));
 
     for (let row = 0; row < gridRows; row++) {
       for (let col = 0; col < gridCols; col++) {
@@ -161,7 +161,7 @@ export class BattleEngine {
     isOpponent: boolean
   ): void {
     const config = ENEMIES[type];
-    const pathCells = isOpponent ? GAME_CONFIG.opponentPathCells : GAME_CONFIG.playerPathCells;
+    const pathCells = GAME_CONFIG.pathCells;
     const startCell = pathCells[0];
     const startPos = this.cellToWorld(startCell, isOpponent);
 
@@ -200,7 +200,7 @@ export class BattleEngine {
     const boss = BOSSES.find((b) => b.id === bossId);
     if (!boss) return;
 
-    const pathCells = isOpponent ? GAME_CONFIG.opponentPathCells : GAME_CONFIG.playerPathCells;
+    const pathCells = GAME_CONFIG.pathCells;
     const startCell = pathCells[0];
     const startPos = this.cellToWorld(startCell, isOpponent);
 
@@ -241,7 +241,7 @@ export class BattleEngine {
   private updateEnemies(deltaTime: number, isOpponent: boolean): void {
     const enemies = isOpponent ? this.state.opponentEnemies : this.state.enemies;
     const player = isOpponent ? this.state.opponent : this.state.player;
-    const pathCells = isOpponent ? GAME_CONFIG.opponentPathCells : GAME_CONFIG.playerPathCells;
+    const pathCells = GAME_CONFIG.pathCells;
     const now = this.state.gameTime;
 
     const toRemove: string[] = [];
