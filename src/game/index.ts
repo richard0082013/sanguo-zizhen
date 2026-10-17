@@ -12,10 +12,18 @@ export function createGame(parent: string | HTMLElement): Phaser.Game {
     backgroundColor: GAME_CONFIG.colors.background,
     scene: [BootScene, GameScene],
     scale: {
-      mode: Phaser.Scale.ENVELOP,
+      mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
       width: GAME_CONFIG.canvasWidth,
       height: GAME_CONFIG.canvasHeight,
+      min: {
+        width: GAME_CONFIG.canvasWidth * 0.5,
+        height: GAME_CONFIG.canvasHeight * 0.5,
+      },
+      max: {
+        width: GAME_CONFIG.canvasWidth * 2,
+        height: GAME_CONFIG.canvasHeight * 2,
+      },
     },
     render: {
       pixelArt: false,

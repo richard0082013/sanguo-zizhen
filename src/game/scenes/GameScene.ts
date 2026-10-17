@@ -95,56 +95,76 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createDebugControls(): void {
-    const debugPanel = this.add.container(10, 10);
+    const panelX = GAME_CONFIG.canvasWidth - 110;
+    const panelY = GAME_CONFIG.riverY + GAME_CONFIG.riverHeight + 10;
+
+    const debugPanel = this.add.container(panelX, panelY);
     debugPanel.setDepth(2000);
 
-    const bg = this.add.rectangle(0, 0, 120, 200, 0x000000, 0.7);
+    const bg = this.add.rectangle(0, 0, 100, 180, 0x000000, 0.85);
     bg.setOrigin(0, 0);
+    bg.setStrokeStyle(2, 0xffff00);
 
-    const title = this.add.text(10, 10, 'DEBUG', {
-      fontSize: '14px',
+    const title = this.add.text(50, 8, 'DEBUG', {
+      fontSize: '12px',
       color: '#ff0',
     });
+    title.setOrigin(0.5, 0);
 
-    const btnFireDragon = this.createDebugButton(10, 40, 'Fire Dragon', () => {
+    const btnFireDragon = this.createDebugButton(5, 30, '🔥 Fire', () => {
       const pathPoints = this.getPathWorldPositions(false);
       this.vfx.fireDragon(pathPoints, 2000);
     });
 
-    const btnArrowRain = this.createDebugButton(10, 70, 'Arrow Rain', () => {
+    const btnArrowRain = this.createDebugButton(5, 55, '🏹 Arrow', () => {
       const cx = GAME_CONFIG.playerGridStartX + 150;
       const cy = GAME_CONFIG.playerGridStartY + 100;
       this.vfx.arrowRain(cx, cy, 80, 20);
     });
 
-    const btnShockwave = this.createDebugButton(10, 100, 'Shockwave', () => {
+    const btnShockwave = this.createDebugButton(5, 80, '💥 Shock', () => {
       const cx = GAME_CONFIG.playerGridStartX + 150;
       const cy = GAME_CONFIG.playerGridStartY + 100;
       this.vfx.shockwaveRoar(cx, cy, 120);
     });
 
-    const btnSlash = this.createDebugButton(10, 130, 'Slash', () => {
+    const btnSlash = this.createDebugButton(5, 105, '⚔️ Slash', () => {
       const cx = GAME_CONFIG.playerGridStartX + 150;
       const cy = GAME_CONFIG.playerGridStartY + 100;
       this.vfx.crescentSlash({ x: cx, y: cy }, 0, 100);
     });
 
-    const btnSpawnGeneral = this.createDebugButton(10, 160, 'Spawn Gen', () => {
+    const btnSpawnGeneral = this.createDebugButton(5, 130, '👤 General', () => {
       this.debugSpawnGeneral();
     });
 
-    debugPanel.add([bg, title, btnFireDragon, btnArrowRain, btnShockwave, btnSlash, btnSpawnGeneral]);
+    const btnLightning = this.createDebugButton(5, 155, '⚡ Chain', () => {
+      const points = [
+        { x: GAME_CONFIG.playerGridStartX + 50, y: GAME_CONFIG.playerGridStartY + 50 },
+        { x: GAME_CONFIG.playerGridStartX + 150, y: GAME_CONFIG.playerGridStartY + 80 },
+        { x: GAME_CONFIG.playerGridStartX + 250, y: GAME_CONFIG.playerGridStartY + 60 },
+      ];
+      this.vfx.lightningChain(points, 0x66ccff);
+    });
+
+    debugPanel.add([bg, title, btnFireDragon, btnArrowRain, btnShockwave, btnSlash, btnSpawnGeneral, btnLightning]);
   }
 
   private createDebugButton(x: number, y: number, text: string, callback: () => void): Phaser.GameObjects.Text {
     const btn = this.add.text(x, y, text, {
-      fontSize: '12px',
+      fontSize: '11px',
       color: '#fff',
-      backgroundColor: '#444',
-      padding: { x: 4, y: 2 },
+      backgroundColor: '#663300',
+      padding: { x: 6, y: 4 },
     });
     btn.setInteractive({ useHandCursor: true });
-    btn.on('pointerdown', callback);
+    btn.on('pointerdown', () => {
+      btn.setBackgroundColor('#884400');
+      callback();
+      this.time.delayedCall(200, () => btn.setBackgroundColor('#663300'));
+    });
+    btn.on('pointerover', () => btn.setBackgroundColor('#885500'));
+    btn.on('pointerout', () => btn.setBackgroundColor('#663300'));
     return btn;
   }
 
