@@ -1,34 +1,34 @@
 export const GAME_CONFIG = {
-  canvasWidth: 390,
-  canvasHeight: 844,
+  canvasWidth: 450,
+  canvasHeight: 800,
 
   gridCols: 7,
   gridRows: 5,
-  cellSize: 44,
+  cellSize: 52,
 
-  opponentBoardY: 20,
-  riverY: 336,
-  riverHeight: 40,
-  playerBoardY: 396,
-  hudY: 716,
-  hudHeight: 128,
+  opponentBoardY: 0,
+  riverY: 310,
+  riverHeight: 30,
+  playerBoardY: 340,
+  hudY: 710,
+  hudHeight: 90,
 
   boardScale: 1,
-  opponentBoardScale: 0.82,
+  opponentBoardScale: 0.75,
 
-  adouColumnWidth: 70,
+  adouColumnWidth: 60,
 
-  playerGridStartX: 75,
-  playerGridStartY: 410,
+  playerGridStartX: 65,
+  playerGridStartY: 350,
 
-  opponentGridStartX: 75,
-  opponentGridStartY: 35,
+  opponentGridStartX: 65,
+  opponentGridStartY: 20,
 
-  playerAdouX: 8,
-  playerAdouY: 490,
+  playerAdouX: 38,
+  playerAdouY: 465,
 
-  opponentAdouX: 8,
-  opponentAdouY: 115,
+  opponentAdouX: 35,
+  opponentAdouY: 125,
 
   playerPathCells: [
     { col: 6, row: 1 },

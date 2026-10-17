@@ -258,7 +258,7 @@ export class GameScene extends Phaser.Scene {
 
     this.opponentHearts = [];
     for (let i = 0; i < GAME_CONFIG.adouLives; i++) {
-      const heart = this.createHeart(GAME_CONFIG.opponentAdouX + 10 + i * 14, GAME_CONFIG.opponentAdouY - 30, 0.6);
+      const heart = this.createHeart(GAME_CONFIG.opponentAdouX - 15 + i * 16, GAME_CONFIG.opponentAdouY + 50, 0.5);
       this.opponentHearts.push(heart);
     }
 
@@ -292,7 +292,7 @@ export class GameScene extends Phaser.Scene {
 
     this.playerHearts = [];
     for (let i = 0; i < GAME_CONFIG.adouLives; i++) {
-      const heart = this.createHeart(GAME_CONFIG.playerAdouX + 15 + i * 18, GAME_CONFIG.playerAdouY - 35, 0.8);
+      const heart = this.createHeart(GAME_CONFIG.playerAdouX - 18 + i * 20, GAME_CONFIG.playerAdouY + 55, 0.7);
       this.playerHearts.push(heart);
     }
 
@@ -434,10 +434,11 @@ export class GameScene extends Phaser.Scene {
     campLabel.setDepth(51);
 
     this.holdingSlotContainers = [];
-    const slotStartX = 55;
-    const slotY = hudY + 25;
-    const slotSize = 50;
-    const slotGap = 8;
+    const slotSize = 46;
+    const slotGap = 6;
+    const totalSlotsWidth = GAME_CONFIG.holdingSlots * slotSize + (GAME_CONFIG.holdingSlots - 1) * slotGap;
+    const slotStartX = (GAME_CONFIG.canvasWidth - totalSlotsWidth) / 2;
+    const slotY = hudY + 12;
 
     for (let i = 0; i < GAME_CONFIG.holdingSlots; i++) {
       const slotX = slotStartX + i * (slotSize + slotGap);
@@ -445,51 +446,51 @@ export class GameScene extends Phaser.Scene {
       const slotBg = this.add.graphics();
       slotBg.setDepth(51);
       slotBg.fillStyle(0x4a3828);
-      slotBg.fillRoundedRect(slotX, slotY, slotSize, slotSize, 6);
+      slotBg.fillRoundedRect(slotX, slotY, slotSize, slotSize, 5);
       slotBg.lineStyle(2, 0x6a5848);
-      slotBg.strokeRoundedRect(slotX, slotY, slotSize, slotSize, 6);
+      slotBg.strokeRoundedRect(slotX, slotY, slotSize, slotSize, 5);
 
       const slotContainer = this.add.container(slotX + slotSize / 2, slotY + slotSize / 2);
       slotContainer.setDepth(52);
       this.holdingSlotContainers.push(slotContainer);
     }
 
-    this.recruitButton = this.add.container(GAME_CONFIG.canvasWidth / 2, hudY + 95);
+    this.recruitButton = this.add.container(GAME_CONFIG.canvasWidth / 2, hudY + 70);
     this.recruitButton.setDepth(51);
 
     const btnBg = this.add.graphics();
     btnBg.fillStyle(0x8b4513);
-    btnBg.fillRoundedRect(-80, -22, 160, 44, 8);
-    btnBg.lineStyle(3, 0xd4a537);
-    btnBg.strokeRoundedRect(-80, -22, 160, 44, 8);
+    btnBg.fillRoundedRect(-70, -18, 140, 36, 6);
+    btnBg.lineStyle(2, 0xd4a537);
+    btnBg.strokeRoundedRect(-70, -18, 140, 36, 6);
 
-    const btnText = this.add.text(0, 0, '征兵', {
+    const btnText = this.add.text(-25, 0, '征兵', {
       fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: '24px',
+      fontSize: '22px',
       color: '#f4e8d0',
     });
     btnText.setOrigin(0.5);
 
-    this.bunsText = this.add.text(50, 0, '30', {
+    const bunIcon = this.add.text(20, 0, '🥟', {
+      fontSize: '14px',
+    });
+    bunIcon.setOrigin(0.5);
+
+    this.bunsText = this.add.text(38, 0, '30', {
       fontFamily: GAME_CONFIG.typography.ui,
-      fontSize: '18px',
+      fontSize: '16px',
       color: '#d4a537',
     });
     this.bunsText.setOrigin(0, 0.5);
 
-    const bunIcon = this.add.text(42, 0, '🥟', {
-      fontSize: '16px',
-    });
-    bunIcon.setOrigin(0.5);
-
     this.recruitButton.add([btnBg, btnText, bunIcon, this.bunsText]);
-    this.recruitButton.setSize(160, 44);
+    this.recruitButton.setSize(140, 36);
     this.recruitButton.setInteractive({ useHandCursor: true });
     this.recruitButton.on('pointerdown', () => this.onRecruitClicked());
 
-    this.waveText = this.add.text(GAME_CONFIG.canvasWidth - 15, hudY + 15, '第1波', {
+    this.waveText = this.add.text(GAME_CONFIG.canvasWidth - 10, hudY + 5, '第1波', {
       fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: '20px',
+      fontSize: '18px',
       color: '#a09080',
     });
     this.waveText.setOrigin(1, 0);
@@ -756,7 +757,7 @@ export class GameScene extends Phaser.Scene {
 
     spriteMap.forEach((sprite, id) => {
       const tile = tiles.find((t) => t.id === id);
-      if (!tile || !tile.position) {
+      if (!tile) {
         if (!this.draggingTile || this.draggingTile.id !== id) {
           sprite.container.destroy();
           spriteMap.delete(id);
