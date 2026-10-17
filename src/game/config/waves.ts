@@ -19,17 +19,17 @@ export interface WaveConfig {
 export const WAVES: WaveConfig[] = [
   {
     id: 1,
-    enemies: [{ type: 'infantry', count: 5, delay: 0 }],
-    spawnInterval: 1500,
+    enemies: [{ type: 'infantry', count: 12, delay: 0 }],
+    spawnInterval: 650,
     isBossWave: false,
   },
   {
     id: 2,
     enemies: [
-      { type: 'infantry', count: 4, delay: 0 },
-      { type: 'cavalry', count: 2, delay: 2000 },
+      { type: 'infantry', count: 8, delay: 0 },
+      { type: 'cavalry', count: 4, delay: 2000 },
     ],
-    spawnInterval: 1200,
+    spawnInterval: 650,
     isBossWave: false,
   },
   {
@@ -38,7 +38,7 @@ export const WAVES: WaveConfig[] = [
       { type: 'infantry', count: 6, delay: 0 },
       { type: 'cavalry', count: 3, delay: 1500 },
     ],
-    spawnInterval: 1000,
+    spawnInterval: 700,
     isBossWave: false,
   },
   {
@@ -48,7 +48,7 @@ export const WAVES: WaveConfig[] = [
       { type: 'shield', count: 2, delay: 2000 },
       { type: 'cavalry', count: 3, delay: 3000 },
     ],
-    spawnInterval: 1000,
+    spawnInterval: 700,
     isBossWave: false,
   },
   {
@@ -63,8 +63,8 @@ export const WAVES: WaveConfig[] = [
   },
   {
     id: 6,
-    enemies: [],
-    spawnInterval: 0,
+    enemies: [{ type: 'infantry', count: 10, delay: 0 }],
+    spawnInterval: 650,
     boss: BOSSES[0],
     isBossWave: true,
   },
@@ -83,7 +83,7 @@ export const WAVES: WaveConfig[] = [
     enemies: [
       { type: 'shield', count: 4, delay: 0, healthMultiplier: 1.3 },
       { type: 'mage', count: 2, delay: 2000 },
-      { type: 'elite', count: 1, delay: 4000 },
+      { type: 'elite', count: 2, delay: 4000 },
     ],
     spawnInterval: 800,
     isBossWave: false,
@@ -122,18 +122,18 @@ export const WAVES: WaveConfig[] = [
   {
     id: 12,
     enemies: [
-      { type: 'infantry', count: 10, delay: 0, healthMultiplier: 1.8 },
+      { type: 'infantry', count: 8, delay: 0, healthMultiplier: 1.8 },
       { type: 'cavalry', count: 6, delay: 2000 },
       { type: 'shield', count: 4, delay: 3000 },
-      { type: 'elite', count: 3, delay: 5000 },
+      { type: 'elite', count: 2, delay: 5000 },
     ],
     spawnInterval: 500,
     isBossWave: false,
   },
   {
     id: 13,
-    enemies: [],
-    spawnInterval: 0,
+    enemies: [{ type: 'infantry', count: 10, delay: 0 }],
+    spawnInterval: 650,
     boss: BOSSES[1],
     isBossWave: true,
   },

@@ -34,7 +34,6 @@ export class BattleEngine {
   private opponentRng: SeededRandom;
   private eventListeners: EventCallback[] = [];
   private spawnQueue: { enemy: WaveEnemy; spawnTime: number; healthMultiplier: number; spawnIndex: number }[] = [];
-  private opponentSpawnQueue: { enemy: WaveEnemy; spawnTime: number; healthMultiplier: number; spawnIndex: number }[] = [];
   private generalChars: string[] = [];
   private nextAITime = 0;
   private nextIncomeTime = 1000;
@@ -121,8 +120,8 @@ export class BattleEngine {
     this.state.gameTime += deltaTime;
 
     if (this.state.gameTime >= this.nextIncomeTime) {
-      this.state.player.buns += 2;
-      this.state.opponent.buns += 2;
+      this.state.player.buns += 1;
+      this.state.opponent.buns += 1;
       this.nextIncomeTime = this.state.gameTime + 1000;
     }
     this.processSpawnQueues();
@@ -144,25 +143,16 @@ export class BattleEngine {
     const wave = WAVES[this.state.currentWave - 1];
     if (!wave) return;
 
-    const processQueue = (
-      queue: typeof this.spawnQueue,
-      isOpponent: boolean
-    ) => {
-      queue.forEach((spawn) => {
-        if (spawn.spawnTime <= now && spawn.enemy.count > 0) {
-          const spawnDelay = spawn.spawnIndex * wave.spawnInterval;
-          if (spawn.spawnTime + spawnDelay <= now) {
-            this.spawnEnemy(spawn.enemy.type, spawn.healthMultiplier, isOpponent);
-            spawn.enemy.count--;
-            spawn.spawnIndex++;
-          }
-        }
-      });
-      return queue.filter((s) => s.enemy.count > 0);
-    };
-
-    this.spawnQueue = processQueue(this.spawnQueue, false);
-    this.opponentSpawnQueue = processQueue(this.opponentSpawnQueue, true);
+    // One schedule emits an independent enemy for each board on the same tick.
+    this.spawnQueue.forEach((spawn) => {
+      while (spawn.enemy.count > 0 && spawn.spawnTime + spawn.spawnIndex * wave.spawnInterval <= now) {
+        this.spawnEnemy(spawn.enemy.type, spawn.healthMultiplier, false);
+        this.spawnEnemy(spawn.enemy.type, spawn.healthMultiplier, true);
+        spawn.enemy.count--;
+        spawn.spawnIndex++;
+      }
+    });
+    this.spawnQueue = this.spawnQueue.filter(spawn => spawn.enemy.count > 0);
   }
 
   private spawnEnemy(
@@ -227,7 +217,7 @@ export class BattleEngine {
       damage: 3,
       rangedResist: 0.3,
       meleeResist: 0.3,
-      reward: 50,
+      reward: 12,
       color: boss.color,
       isBoss: true,
       bossId: boss.id,
@@ -664,11 +654,10 @@ export class BattleEngine {
 
     const playerDone = this.state.enemies.length === 0 && this.spawnQueue.length === 0;
     const opponentDone =
-      this.state.opponentEnemies.length === 0 && this.opponentSpawnQueue.length === 0;
+      this.state.opponentEnemies.length === 0 && this.spawnQueue.length === 0;
 
     const noMoreSpawns =
-      this.spawnQueue.every((s) => s.enemy.count === 0) &&
-      this.opponentSpawnQueue.every((s) => s.enemy.count === 0);
+      this.spawnQueue.every((s) => s.enemy.count === 0);
 
     if (playerDone && opponentDone && noMoreSpawns) {
       this.state.isWaveActive = false;
@@ -724,22 +713,15 @@ export class BattleEngine {
     if (wave.isBossWave && wave.boss) {
       this.spawnBoss(wave.boss.id, false);
       this.spawnBoss(wave.boss.id, true);
-    } else {
-      wave.enemies.forEach((enemy) => {
-        this.spawnQueue.push({
-          enemy: { ...enemy },
-          spawnTime: this.state.gameTime + enemy.delay,
-          healthMultiplier: enemy.healthMultiplier || 1,
-          spawnIndex: 0,
-        });
-        this.opponentSpawnQueue.push({
-          enemy: { ...enemy },
-          spawnTime: this.state.gameTime + enemy.delay,
-          healthMultiplier: enemy.healthMultiplier || 1,
-          spawnIndex: 0,
-        });
-      });
     }
+    wave.enemies.forEach((enemy) => {
+      this.spawnQueue.push({
+        enemy: { ...enemy },
+        spawnTime: this.state.gameTime + enemy.delay,
+        healthMultiplier: enemy.healthMultiplier || 1,
+        spawnIndex: 0,
+      });
+    });
 
     return true;
   }

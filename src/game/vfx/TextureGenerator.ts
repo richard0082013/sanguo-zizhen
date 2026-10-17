@@ -9,6 +9,7 @@ export class TextureGenerator {
   }
 
   generateAll(): void {
+    this.createGlowTextures();
     this.createParchmentTexture();
     this.createPathTexture();
     this.createRiverTexture();
@@ -17,6 +18,22 @@ export class TextureGenerator {
     this.createAdouTexture();
     this.createEnemyTextures();
     this.createHeartTexture();
+  }
+
+  private createGlowTextures(): void {
+    for (const [key, color] of [['fire_glow', '255,255,255'], ['smoke_glow', '65,53,48']]) {
+      if (this.scene.textures.exists(key)) continue;
+      const canvas = this.scene.textures.createCanvas(key, 64, 64)!;
+      const ctx = canvas.getContext();
+      const glow = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      glow.addColorStop(0, `rgba(${color},1)`);
+      glow.addColorStop(0.25, `rgba(${color},0.7)`);
+      glow.addColorStop(0.6, `rgba(${color},0.2)`);
+      glow.addColorStop(1, `rgba(${color},0)`);
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, 64, 64);
+      canvas.refresh();
+    }
   }
 
   private createParchmentTexture(): void {
@@ -73,29 +90,24 @@ export class TextureGenerator {
     if (!canvas) return;
     const ctx = canvas.getContext();
 
-    const gradient = ctx.createLinearGradient(0, 0, size, size);
-    gradient.addColorStop(0, '#a08060');
-    gradient.addColorStop(0.5, '#8b7050');
-    gradient.addColorStop(1, '#705840');
-    ctx.fillStyle = gradient;
+    ctx.fillStyle = '#a57a4d';
     ctx.fillRect(0, 0, size, size);
-
-    ctx.globalAlpha = 0.3;
-    for (let i = 0; i < 20; i++) {
-      const x = Math.random() * size;
-      const y = Math.random() * size;
-      const r = Math.random() * 4 + 2;
-      ctx.fillStyle = Math.random() > 0.5 ? '#604830' : '#907050';
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
+    // Fine sand, gravel and worn ruts, rather than large circular spots.
+    for (let i = 0; i < 850; i++) {
+      ctx.globalAlpha = 0.12 + Math.random() * 0.2;
+      ctx.fillStyle = Math.random() > 0.45 ? '#503723' : '#f1d3a0';
+      ctx.fillRect(Math.random() * size, Math.random() * size, Math.random() * 1.5 + 0.3, 0.7);
     }
-
-    ctx.globalAlpha = 0.2;
-    ctx.strokeStyle = '#503820';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(1, 1, size - 2, size - 2);
-
+    ctx.globalAlpha = 0.13;
+    ctx.strokeStyle = '#59402c';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 7; i++) {
+      const y = 7 + i * 7;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.bezierCurveTo(18, y - 3, 36, y + 3, size, y - 1);
+      ctx.stroke();
+    }
     ctx.globalAlpha = 1;
     canvas.refresh();
   }

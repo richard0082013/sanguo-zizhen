@@ -42,8 +42,9 @@ describe('board interactions', () => {
 });
 
 describe('early battle pacing', () => {
-  it('allows five recruits and placement on every non-path cell', () => {
+  it('allows funded recruits and placement on every non-path cell', () => {
     const engine = new BattleEngine(42);
+    engine.getState().player.buns = 100;
     const tiles = Array.from({length: 5}, () => engine.recruit(false)!);
     expect(tiles.every(Boolean)).toBe(true);
     for (const cell of engine.getState().player.cells.filter(c => !c.isPath)) {
@@ -64,9 +65,42 @@ describe('early battle pacing', () => {
     expect(engine.getState().player.adouLives).toBeLessThan(3);
   });
 
-  it('fills the opponent board with timed recruiting', () => {
+  it('limits early AI recruiting by the same rising costs', () => {
     const engine = new BattleEngine(42);
     for(let i = 0; i < 240; i++) engine.update(50);
-    expect(engine.getState().opponent.tiles.filter(t => t.position).length).toBeGreaterThanOrEqual(20);
+    expect(engine.getState().opponent.recruitCount).toBe(3);
+    expect(engine.getState().opponent.recruitCost).toBe(16);
+    expect(engine.getState().opponent.tiles.filter(t => t.position).length).toBeLessThanOrEqual(3);
+  });
+});
+
+
+describe('shared enemy schedule', () => {
+  it('spawns and moves matching enemies on both boards with independent HP', () => {
+    const engine = new BattleEngine(42);
+    engine.getState().opponent.buns = 0;
+    engine.startNextWave();
+    for (let i = 0; i < 80; i++) engine.update(100);
+    const { enemies, opponentEnemies } = engine.getState();
+    expect(enemies).toHaveLength(12);
+    expect(opponentEnemies).toHaveLength(12);
+    enemies.forEach((enemy, i) => {
+      const other = opponentEnemies[i];
+      expect(other.type).toBe(enemy.type);
+      expect(other.pathIndex).toBe(enemy.pathIndex);
+      expect(other.pathProgress).toBeCloseTo(enemy.pathProgress);
+      expect(other.position.x).toBeCloseTo(enemy.position.x);
+      expect(other.position.y).toBeCloseTo(enemy.position.y - 350);
+    });
+    enemies[0].health = 1;
+    expect(opponentEnemies[0].health).toBe(100);
+  });
+
+  it('rejects road placement on both boards', () => {
+    const engine = new BattleEngine(42);
+    for (const opponent of [false, true]) {
+      const tile = engine.recruit(opponent)!;
+      expect(engine.placeTile(tile.id, { row: 1, col: 6 }, opponent)).toBe(false);
+    }
   });
 });

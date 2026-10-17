@@ -42,6 +42,6 @@ export function createGame(parent: string | HTMLElement): Phaser.Game {
  declare global {
   interface Window {
     __game: Phaser.Game;
-    __test: { placeableCells(): {row: number; col: number}[]; state(): any; slotPos(i: number): { x: number; y: number }; cellPos(row: number, col: number): { x: number; y: number }; triggerFire(): void; recruitPos(): { x: number; y: number }; start(): void };
+    __test: { myTiles(): {id: string; row: number; col: number; type: string; char: string; level: number}[]; setGold(amount: number): void; placeableCells(): {row: number; col: number}[]; state(): any; slotPos(i: number): { x: number; y: number }; cellPos(row: number, col: number): { x: number; y: number }; triggerFire(): void; recruitPos(): { x: number; y: number }; start(): void };
   }
 }

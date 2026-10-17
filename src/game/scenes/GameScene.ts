@@ -89,6 +89,10 @@ export class GameScene extends Phaser.Scene {
         y: position.y * bounds.height / GAME_CONFIG.canvasHeight };
     };
     window.__test = {
+      myTiles: () => this.engine.getState().player.tiles.filter(t => t.position).map(t => ({
+        id: t.id, row: t.position!.row, col: t.position!.col, type: t.type, char: t.char, level: t.level,
+      })),
+      setGold: (amount: number) => { const state = this.engine.getState(); state.player.buns = amount; state.opponent.buns = amount; },
       placeableCells: () => this.engine.getState().player.cells.filter(c => !c.isPath).map(c => ({ ...c.position })),
       state: () => JSON.parse(JSON.stringify(this.engine.getState())),
       slotPos: (i) => cssPosition(this.holdingSlotContainers[i]),
@@ -286,7 +290,7 @@ export class GameScene extends Phaser.Scene {
         cellContainer.setDepth(10);
 
         if (isPath) {
-          const pathCell = this.createPathCell(scaledSize);
+          const pathCell = this.createPathCell(scaledSize, row, col, pathSet);
           cellContainer.add(pathCell);
         } else {
           const gridCell = this.createGridCell(scaledSize);
@@ -323,7 +327,7 @@ export class GameScene extends Phaser.Scene {
         cellContainer.setData('isPath', isPath);
 
         if (isPath) {
-          const pathCell = this.createPathCell(cellSize);
+          const pathCell = this.createPathCell(cellSize, row, col, pathSet);
           cellContainer.add(pathCell);
         } else {
           const gridCell = this.createGridCell(cellSize);
@@ -335,24 +339,21 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private createPathCell(size: number): Phaser.GameObjects.Graphics {
-    const g = this.add.graphics();
-
-    const gradient = g;
-    g.fillStyle(0x8b7050);
-    g.fillRect(0, 0, size, size);
-
-    g.fillStyle(0x705840, 0.5);
-    for (let i = 0; i < 8; i++) {
-      const px = Math.random() * size;
-      const py = Math.random() * size;
-      g.fillCircle(px, py, Math.random() * 3 + 1);
+  private createPathCell(size: number, row: number, col: number, path: Set<string>): Phaser.GameObjects.Container {
+    const container = this.add.container(0, 0);
+    container.add(this.add.image(0, 0, 'path_cell').setOrigin(0).setDisplaySize(size, size));
+    const edges = this.add.graphics();
+    // Only exposed banks are darkened, leaving neighboring road cells connected.
+    for (const [dc, dr, x1, y1, x2, y2] of [
+      [0, -1, 0, 2, size, 2], [0, 1, 0, size - 2, size, size - 2],
+      [-1, 0, 2, 0, 2, size], [1, 0, size - 2, 0, size - 2, size],
+    ]) {
+      if (path.has(`${col + dc},${row + dr}`)) continue;
+      edges.lineStyle(5, 0x503724, 0.65).lineBetween(x1, y1, x2, y2);
+      edges.lineStyle(1, 0xe1b77b, 0.5).lineBetween(x1, y1, x2, y2);
     }
-
-    g.lineStyle(1, 0x604030, 0.5);
-    g.strokeRect(0, 0, size, size);
-
-    return g;
+    container.add(edges);
+    return container;
   }
 
   private createGridCell(size: number): Phaser.GameObjects.Graphics {
@@ -868,6 +869,10 @@ export class GameScene extends Phaser.Scene {
         this.projectileSprites.set(proj.id, sprite);
       }
 
+      const trail = this.add.image(sprite.x, sprite.y, 'fire_glow')
+        .setTint(0xffc34d).setScale(0.4, 0.12).setRotation(sprite.rotation)
+        .setAlpha(0.65).setBlendMode(Phaser.BlendModes.ADD).setDepth(149);
+      this.tweens.add({ targets: trail, alpha: 0, scaleX: 0.1, duration: 200, onComplete: () => trail.destroy() });
       sprite.setPosition(proj.position.x, proj.position.y);
 
       const angle = Phaser.Math.Angle.Between(
@@ -896,7 +901,7 @@ export class GameScene extends Phaser.Scene {
       g.fillStyle(0xfff3a0);
       g.lineStyle(13, 0xffdd77, 0.3);
       g.lineBetween(-28, 0, 12, 0);
-      g.fillRect(-24, -2, 36, 4);
+      g.fillRect(-12, -2, 24, 4);
       g.fillStyle(0xffee66);
       g.fillTriangle(18, 0, 6, -7, 6, 7);
     } else {
@@ -906,7 +911,9 @@ export class GameScene extends Phaser.Scene {
       g.fillCircle(-1, -1, 3);
     }
 
-    container.add(g);
+    const glow = this.add.image(0, 0, 'fire_glow').setTint(0xffbb33)
+      .setScale(0.65, 0.35).setBlendMode(Phaser.BlendModes.ADD);
+    container.add([glow, g]);
     return container;
   }
 

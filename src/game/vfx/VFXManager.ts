@@ -75,37 +75,36 @@ export class VFXManager {
   fireDragon(pathPoints: Position[], duration: number = 1500): void {
     if (pathPoints.length < 2) return;
     this.scene.cameras.main.shake(450, 0.007);
-    const emitter = this.scene.add.particles(0, 0, 'particle_flame', {
-      speed: { min: 60, max: 180 },
-      scale: { start: 3.8, end: 0 },
-      alpha: { start: 0.9, end: 0 },
-      lifespan: 650,
+    const emitter = this.scene.add.particles(0, 0, 'fire_glow', {
+      speed: { min: 15, max: 65 },
+      scale: { start: 0.8, end: 0 },
+      alpha: { start: 0.5, end: 0 },
+      lifespan: 750,
       blendMode: Phaser.BlendModes.ADD,
-      frequency: 15,
-      quantity: 6,
+      frequency: 18,
+      quantity: 3,
       tint: [0xff6600, 0xff3300, 0xffaa00],
     });
     emitter.setDepth(300);
 
-    const dragonHead = this.scene.add.container(pathPoints[0].x, pathPoints[0].y);
-    const flame = this.scene.add.graphics();
-    // A 180px breath silhouette, with nested translucent glow and a hot core.
-    flame.fillStyle(0xff3300, 0.18);
-    flame.fillEllipse(-55, 0, 220, 130);
-    flame.fillStyle(0xff5500, 0.55);
-    flame.fillTriangle(26, 0, -155, -58, -155, 58);
-    flame.fillStyle(0xff9900, 0.9);
-    flame.fillTriangle(30, 0, -140, -38, -140, 38);
-    flame.fillStyle(0xffee99, 0.95);
-    flame.fillTriangle(32, 0, -112, -16, -112, 16);
-    flame.fillStyle(0xffcc33);
-    flame.fillEllipse(6, 0, 65, 44);
-    flame.fillStyle(0xfff6cc);
-    flame.fillTriangle(22, -8, -8, -34, -2, -8);
-    flame.fillStyle(0x481b13);
-    flame.fillCircle(19, -9, 4);
-    dragonHead.add(flame);
-    dragonHead.setDepth(310);
+    const dragonHead = this.scene.add.container(pathPoints[0].x, pathPoints[0].y).setDepth(310);
+    // Overlapping soft lobes form a curling, incandescent head, with no polygon silhouette.
+    for (let i = 0; i < 9; i++) {
+      const lobe = this.scene.add.image(-i * 5, Math.sin(i * 0.7) * 10, 'fire_glow');
+      lobe.setTint(i < 3 ? 0xffef99 : 0xff6518).setScale(0.6 + i * 0.025, 0.4);
+      lobe.setAlpha(0.32).setBlendMode(Phaser.BlendModes.ADD);
+      dragonHead.add(lobe);
+    }
+    const smoke = this.scene.add.particles(0, 0, 'smoke_glow', {
+      lifespan: 1100, frequency: 30, quantity: 2,
+      speedX: { min: -25, max: 25 }, speedY: { min: -55, max: -20 },
+      scale: { start: 0.3, end: 1.1 }, alpha: { start: 0.3, end: 0 },
+    }).setDepth(290).startFollow(dragonHead);
+    const embers = this.scene.add.particles(0, 0, 'fire_glow', {
+      lifespan: 900, frequency: 18, quantity: 3,
+      speed: { min: 40, max: 120 }, scale: { start: 0.1, end: 0 },
+      tint: [0xff4422, 0xffbb33], blendMode: Phaser.BlendModes.ADD,
+    }).setDepth(315).startFollow(dragonHead);
 
     let pathIndex = 0;
     const totalDistance = pathPoints.slice(1).reduce((sum, point, i) => sum + Phaser.Math.Distance.Between(pathPoints[i].x, pathPoints[i].y, point.x, point.y), 0);
@@ -114,7 +113,12 @@ export class VFXManager {
     const updateDragon = () => {
       if (pathIndex >= pathPoints.length - 1) {
         emitter.stop();
-        this.scene.time.delayedCall(500, () => {
+        smoke.stop();
+        embers.stop();
+        dragonHead.setVisible(false);
+        this.scene.time.delayedCall(1200, () => {
+          smoke.destroy();
+          embers.destroy();
           emitter.destroy();
           dragonHead.destroy();
         });
@@ -147,7 +151,7 @@ export class VFXManager {
     for (let i = 0; i < pathPoints.length - 1; i++) {
       const point = pathPoints[i];
       this.scene.time.delayedCall(elapsedDistance / moveSpeed * 1000, () => {
-        this.createFireBurst(point.x, point.y, 45);
+        this.createFireBurst(point.x, point.y, 16);
       });
       elapsedDistance += Phaser.Math.Distance.Between(point.x, point.y, pathPoints[i + 1].x, pathPoints[i + 1].y);
     }
@@ -485,6 +489,9 @@ export class VFXManager {
   }
 
   createImpactSpark(x: number, y: number, color: number): void {
+    const flash = this.scene.add.image(x, y, 'fire_glow').setTint(color)
+      .setScale(0.65).setBlendMode(Phaser.BlendModes.ADD).setDepth(299);
+    this.scene.tweens.add({ targets: flash, alpha: 0, scale: 0.1, duration: 220, onComplete: () => flash.destroy() });
     const spark = this.scene.add.particles(x, y, 'particle_spark', {
       speed: { min: 30, max: 80 },
       scale: { start: 0.4, end: 0 },

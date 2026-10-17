@@ -110,10 +110,10 @@ export const GAME_CONFIG = {
 
   holdingSlots: 5,
 
-  initialBuns: 60,
-  baseRecruitCost: 2,
-  recruitCostIncrement: 0,
-  maxRecruitCost: 2,
+  initialBuns: 30,
+  baseRecruitCost: 10,
+  recruitCostIncrement: 2,
+  maxRecruitCost: Number.POSITIVE_INFINITY,
 
   adouLives: 3,
 
