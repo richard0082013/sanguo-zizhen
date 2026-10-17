@@ -73,30 +73,43 @@ export class VFXManager {
   }
 
   fireDragon(pathPoints: Position[], duration: number = 1500): void {
+    if (pathPoints.length < 2) return;
+    this.scene.cameras.main.shake(450, 0.007);
     const emitter = this.scene.add.particles(0, 0, 'particle_flame', {
-      speed: { min: 20, max: 60 },
-      scale: { start: 1.2, end: 0 },
+      speed: { min: 60, max: 180 },
+      scale: { start: 3.8, end: 0 },
       alpha: { start: 0.9, end: 0 },
-      lifespan: 400,
+      lifespan: 650,
       blendMode: Phaser.BlendModes.ADD,
       frequency: 15,
-      quantity: 3,
+      quantity: 6,
       tint: [0xff6600, 0xff3300, 0xffaa00],
     });
     emitter.setDepth(300);
 
     const dragonHead = this.scene.add.container(pathPoints[0].x, pathPoints[0].y);
-    const headGlow = this.scene.add.graphics();
-    headGlow.fillStyle(0xff4400, 0.8);
-    headGlow.fillCircle(0, 0, 20);
-    const headCore = this.scene.add.graphics();
-    headCore.fillStyle(0xffff00, 1);
-    headCore.fillCircle(0, 0, 8);
-    dragonHead.add([headGlow, headCore]);
+    const flame = this.scene.add.graphics();
+    // A 180px breath silhouette, with nested translucent glow and a hot core.
+    flame.fillStyle(0xff3300, 0.18);
+    flame.fillEllipse(-55, 0, 220, 130);
+    flame.fillStyle(0xff5500, 0.55);
+    flame.fillTriangle(26, 0, -155, -58, -155, 58);
+    flame.fillStyle(0xff9900, 0.9);
+    flame.fillTriangle(30, 0, -140, -38, -140, 38);
+    flame.fillStyle(0xffee99, 0.95);
+    flame.fillTriangle(32, 0, -112, -16, -112, 16);
+    flame.fillStyle(0xffcc33);
+    flame.fillEllipse(6, 0, 65, 44);
+    flame.fillStyle(0xfff6cc);
+    flame.fillTriangle(22, -8, -8, -34, -2, -8);
+    flame.fillStyle(0x481b13);
+    flame.fillCircle(19, -9, 4);
+    dragonHead.add(flame);
     dragonHead.setDepth(310);
 
     let pathIndex = 0;
-    const moveSpeed = 300;
+    const totalDistance = pathPoints.slice(1).reduce((sum, point, i) => sum + Phaser.Math.Distance.Between(pathPoints[i].x, pathPoints[i].y, point.x, point.y), 0);
+    const moveSpeed = totalDistance / (Math.max(500, duration) / 1000);
 
     const updateDragon = () => {
       if (pathIndex >= pathPoints.length - 1) {
@@ -112,9 +125,10 @@ export class VFXManager {
       const next = pathPoints[pathIndex + 1];
       const dist = Phaser.Math.Distance.Between(current.x, current.y, next.x, next.y);
       const moveDuration = (dist / moveSpeed) * 1000;
+      dragonHead.setRotation(Phaser.Math.Angle.Between(current.x, current.y, next.x, next.y));
 
       this.scene.tweens.add({
-        targets: [dragonHead, emitter],
+        targets: dragonHead,
         x: next.x,
         y: next.y,
         duration: moveDuration,
@@ -129,13 +143,13 @@ export class VFXManager {
     emitter.startFollow(dragonHead);
     updateDragon();
 
+    let elapsedDistance = 0;
     for (let i = 0; i < pathPoints.length - 1; i++) {
-      const p1 = pathPoints[i];
-      const p2 = pathPoints[i + 1];
-
-      this.scene.time.delayedCall(i * 200, () => {
-        this.createFireBurst(p1.x, p1.y, 15);
+      const point = pathPoints[i];
+      this.scene.time.delayedCall(elapsedDistance / moveSpeed * 1000, () => {
+        this.createFireBurst(point.x, point.y, 45);
       });
+      elapsedDistance += Phaser.Math.Distance.Between(point.x, point.y, pathPoints[i + 1].x, pathPoints[i + 1].y);
     }
   }
 
@@ -187,7 +201,8 @@ export class VFXManager {
       const p1 = points[i];
       const p2 = points[i + 1];
 
-      this.drawLightningBolt(graphics, p1, p2, color, 3);
+      this.drawLightningBolt(graphics, { x: p1.x, y: p1.y - 150 }, p1, color, 8);
+      this.drawLightningBolt(graphics, p1, p2, color, 8);
 
       const spark = this.scene.add.particles(p2.x, p2.y, 'particle_spark', {
         speed: { min: 50, max: 100 },
@@ -207,7 +222,7 @@ export class VFXManager {
     this.scene.tweens.add({
       targets: graphics,
       alpha: 0,
-      duration: 200,
+      duration: 550,
       onComplete: () => graphics.destroy(),
     });
   }
@@ -237,7 +252,7 @@ export class VFXManager {
     }
     points.push(to);
 
-    graphics.lineStyle(4, 0xffffff, 0.3);
+    graphics.lineStyle(18, color, 0.25);
     graphics.beginPath();
     graphics.moveTo(points[0].x, points[0].y);
     for (let i = 1; i < points.length; i++) {
@@ -245,7 +260,7 @@ export class VFXManager {
     }
     graphics.strokePath();
 
-    graphics.lineStyle(2, color, 1);
+    graphics.lineStyle(5, 0xeeffff, 1);
     graphics.beginPath();
     graphics.moveTo(points[0].x, points[0].y);
     for (let i = 1; i < points.length; i++) {
@@ -279,7 +294,7 @@ export class VFXManager {
         feather.fillTriangle(3, 10, 0, 6, 0, 14);
 
         arrow.add([shaft, head, feather]);
-        arrow.setDepth(270);
+        arrow.setDepth(270).setScale(1.8);
 
         const angle = Phaser.Math.Angle.Between(startX, startY, targetX, targetY);
         arrow.setRotation(angle + Math.PI / 2);

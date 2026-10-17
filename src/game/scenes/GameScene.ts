@@ -83,6 +83,20 @@ export class GameScene extends Phaser.Scene {
     this.dragLine = this.add.graphics();
     this.dragLine.setDepth(500);
 
+    const cssPosition = (position: Position): Position => {
+      const bounds = this.game.canvas.getBoundingClientRect();
+      return { x: position.x * bounds.width / GAME_CONFIG.canvasWidth,
+        y: position.y * bounds.height / GAME_CONFIG.canvasHeight };
+    };
+    window.__test = {
+      placeableCells: () => this.engine.getState().player.cells.filter(c => !c.isPath).map(c => ({ ...c.position })),
+      state: () => JSON.parse(JSON.stringify(this.engine.getState())),
+      slotPos: (i) => cssPosition(this.holdingSlotContainers[i]),
+      cellPos: (row, col) => cssPosition(this.getTileWorldPosition({ row, col }, false)),
+      triggerFire: () => this.vfx.fireDragon(this.getPathWorldPositions(false), 2000),
+      recruitPos: () => cssPosition(this.recruitButton),
+      start: () => this.startGame(),
+    };
     this.showStartScreen();
 
     this.input.on('pointerdown', this.onPointerDown, this);
@@ -360,7 +374,7 @@ export class GameScene extends Phaser.Scene {
     const container = this.add.container(x, y);
     container.setDepth(15);
 
-    const scale = isOpponent ? 0.6 : 0.8;
+    const scale = 0.6;
 
     if (this.textures.exists('adou')) {
       const sprite = this.add.image(0, 0, 'adou');
@@ -455,7 +469,7 @@ export class GameScene extends Phaser.Scene {
       this.holdingSlotContainers.push(slotContainer);
     }
 
-    this.recruitButton = this.add.container(GAME_CONFIG.canvasWidth / 2, hudY + 70);
+    this.recruitButton = this.add.container(GAME_CONFIG.canvasWidth / 2, hudY + 92);
     this.recruitButton.setDepth(51);
 
     const btnBg = this.add.graphics();
@@ -587,7 +601,8 @@ export class GameScene extends Phaser.Scene {
     this.engine = new BattleEngine(Date.now());
     this.engine.addEventListener((event: GameEvent) => this.handleGameEvent(event));
 
-    this.time.delayedCall(500, () => {
+    this.showAnnouncement('布阵！征兵迎敌');
+    this.time.delayedCall(GAME_CONFIG.waveDelay, () => {
       this.engine.startNextWave();
     });
   }
@@ -608,8 +623,7 @@ export class GameScene extends Phaser.Scene {
     this.updateTiles(state.player.tiles, false);
     this.updateTiles(state.opponent.tiles, true);
 
-    this.updateProjectiles(state.projectiles, false);
-    this.updateProjectiles(state.opponentProjectiles, true);
+    this.updateProjectiles([...state.projectiles, ...state.opponentProjectiles]);
 
     this.updateUI(state);
   }
@@ -626,7 +640,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       const worldPos = this.getEnemyWorldPosition(enemy, isOpponent);
-      const scale = isOpponent ? 0.75 : 1;
+      const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : 1;
       const size = (enemy.isBoss ? 64 : 40) * scale;
 
       const bobOffset = Math.sin(this.time.now * 0.008 + enemy.pathIndex * 2) * 3;
@@ -656,7 +670,7 @@ export class GameScene extends Phaser.Scene {
     const container = this.add.container(0, 0);
     container.setDepth(100);
 
-    const scale = isOpponent ? 0.75 : 1;
+    const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : 1;
     const size = (enemy.isBoss ? 64 : 40) * scale;
 
     const enemyTextureMap: Record<string, string> = {
@@ -752,7 +766,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       const worldPos = this.getTileWorldPosition(tile.position, isOpponent);
-      sprite.container.setPosition(worldPos.x, worldPos.y);
+      if (this.draggingTile?.id !== tile.id) sprite.container.setPosition(worldPos.x, worldPos.y);
     });
 
     spriteMap.forEach((sprite, id) => {
@@ -845,7 +859,7 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
-  private updateProjectiles(projectiles: any[], isOpponent: boolean): void {
+  private updateProjectiles(projectiles: any[]): void {
     projectiles.forEach((proj) => {
       let sprite = this.projectileSprites.get(proj.id);
 
@@ -879,10 +893,12 @@ export class GameScene extends Phaser.Scene {
     const g = this.add.graphics();
 
     if (proj.tileType === 'bow') {
-      g.fillStyle(0x8b4513);
-      g.fillRect(-8, -1, 16, 2);
-      g.fillStyle(0x444444);
-      g.fillTriangle(8, 0, 4, -3, 4, 3);
+      g.fillStyle(0xfff3a0);
+      g.lineStyle(13, 0xffdd77, 0.3);
+      g.lineBetween(-28, 0, 12, 0);
+      g.fillRect(-24, -2, 36, 4);
+      g.fillStyle(0xffee66);
+      g.fillTriangle(18, 0, 6, -7, 6, 7);
     } else {
       g.fillStyle(0xffaa00);
       g.fillCircle(0, 0, 5);
@@ -922,6 +938,7 @@ export class GameScene extends Phaser.Scene {
         break;
 
       case 'PROJECTILE_HIT':
+        this.vfx.inkSplat(event.position.x, event.position.y);
         this.showDamageNumber(event.position.x, event.position.y, event.damage, false);
         break;
 
@@ -952,6 +969,10 @@ export class GameScene extends Phaser.Scene {
 
       case 'GAME_OVER':
         this.showResult(event.winner);
+        break;
+
+      case 'GENERAL_SKILL_USED':
+        this.vfx.generalSkillEffect(event.generalId, this.getPathWorldPositions(event.isOpponent)[0], this.getPathWorldPositions(event.isOpponent));
         break;
 
       case 'GENERAL_ACTIVATED':
@@ -985,6 +1006,15 @@ export class GameScene extends Phaser.Scene {
   private onEnemyKilled(enemyId: string, reward: number, isOpponent: boolean, position: Position): void {
     this.showDamageNumber(position.x, position.y, reward, true);
     this.vfx.inkSplat(position.x, position.y);
+    if (!isOpponent) {
+      const bun = this.textures.exists('ui_mantou')
+        ? this.add.image(position.x, position.y, 'ui_mantou').setDisplaySize(32, 32)
+        : this.add.text(position.x, position.y, '包子', { fontSize: '20px', color: '#fff4cc' });
+      bun.setOrigin(0.5).setDepth(650);
+      const target = this.bunsText.getWorldTransformMatrix();
+      this.tweens.add({ targets: bun, x: target.tx, y: target.ty, scaleX: bun.scaleX * 0.5, scaleY: bun.scaleY * 0.5,
+        duration: 650, ease: 'Cubic.easeIn', onComplete: () => bun.destroy() });
+    }
   }
 
   private onEnemyReachedEnd(isOpponent: boolean): void {
@@ -1017,6 +1047,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showAttackEffect(from: Position, to: Position, tileType: string): void {
+    const shot = this.add.circle(from.x, from.y, 7, 0xffd36a).setDepth(180);
+    shot.setStrokeStyle(3, 0x76351a);
+    this.tweens.add({ targets: shot, x: to.x, y: to.y, duration: 320,
+      onComplete: () => shot.destroy() });
     const g = this.add.graphics();
     g.setDepth(120);
 
@@ -1029,7 +1063,7 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({
       targets: g,
       alpha: 0,
-      duration: 150,
+      duration: 350,
       onComplete: () => g.destroy(),
     });
 
@@ -1039,7 +1073,7 @@ export class GameScene extends Phaser.Scene {
   private showDamageNumber(x: number, y: number, amount: number, isReward: boolean): void {
     const text = this.add.text(x, y, isReward ? `+${amount}` : `-${amount}`, {
       fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: '18px',
+      fontSize: '26px',
       color: isReward ? '#4caf50' : '#ff4444',
       stroke: '#000',
       strokeThickness: 2,
@@ -1051,7 +1085,7 @@ export class GameScene extends Phaser.Scene {
       targets: text,
       y: y - 40,
       alpha: 0,
-      duration: 600,
+      duration: 1100,
       ease: 'Cubic.easeOut',
       onComplete: () => text.destroy(),
     });
@@ -1214,7 +1248,8 @@ export class GameScene extends Phaser.Scene {
       if (bounds.contains(pointer.x, pointer.y)) {
         this.draggingTile = sprite;
         this.dragOrigin = { x: sprite.container.x, y: sprite.container.y };
-        sprite.container.setDepth(200);
+        this.tweens.killTweensOf(sprite.container);
+        sprite.container.setDepth(600).setScale(1.18);
         return;
       }
     }
@@ -1227,7 +1262,8 @@ export class GameScene extends Phaser.Scene {
       if (bounds.contains(pointer.x, pointer.y)) {
         this.draggingTile = sprite;
         this.dragOrigin = { x: sprite.container.x, y: sprite.container.y };
-        sprite.container.setDepth(200);
+        this.tweens.killTweensOf(sprite.container);
+        sprite.container.setDepth(600).setScale(1.18);
         return;
       }
     }
@@ -1290,11 +1326,13 @@ export class GameScene extends Phaser.Scene {
       const cellSize = GAME_CONFIG.cellSize;
 
       const highlight = this.add.graphics();
-      highlight.setDepth(90);
+      highlight.setDepth(110);
+      const hovered = pointer.x >= cellX && pointer.x < cellX + cellSize && pointer.y >= cellY && pointer.y < cellY + cellSize;
+      highlight.setAlpha(hovered ? 1 : 0.35);
 
       if (cell.tileId) {
         const existingTile = state.player.tiles.find((t) => t.id === cell.tileId);
-        if (existingTile && existingTile.type === draggingTile.type && existingTile.level === draggingTile.level && existingTile.level < 5) {
+        if (existingTile && existingTile.id !== draggingTile.id && existingTile.char === draggingTile.char && existingTile.type === draggingTile.type && existingTile.level === draggingTile.level && existingTile.level < 5) {
           highlight.fillStyle(0x4caf50, 0.4);
           highlight.fillRect(cellX, cellY, cellSize, cellSize);
           highlight.lineStyle(3, 0x4caf50);
@@ -1319,6 +1357,7 @@ export class GameScene extends Phaser.Scene {
   private onPointerUp(pointer: Phaser.Input.Pointer): void {
     if (!this.draggingTile || !this.dragOrigin) return;
 
+    this.draggingTile.container.setScale(1).setDepth(100);
     this.dragLine.clear();
     this.clearHighlights();
 
@@ -1336,6 +1375,7 @@ export class GameScene extends Phaser.Scene {
           state.player.holdingSlots.find((t) => t?.id === this.draggingTile!.id);
 
         if (existingTile && draggingTileData &&
+          existingTile.char === draggingTileData.char &&
           existingTile.type === draggingTileData.type &&
           existingTile.level === draggingTileData.level &&
           existingTile.level < 5 &&

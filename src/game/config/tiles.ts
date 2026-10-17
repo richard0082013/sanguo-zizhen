@@ -17,7 +17,7 @@ export const TILE_CONFIGS: Record<Exclude<TileType, 'general' | 'shovel'>, TileC
     char: '刀',
     name: '刀兵',
     color: '#CD5C5C',
-    attackRange: 50,
+    attackRange: 80,
     attackSpeed: 1000,
     baseDamage: 15,
     isRanged: false,

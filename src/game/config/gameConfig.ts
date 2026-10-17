@@ -4,31 +4,31 @@ export const GAME_CONFIG = {
 
   gridCols: 7,
   gridRows: 5,
-  cellSize: 52,
+  cellSize: 54,
 
   opponentBoardY: 0,
-  riverY: 310,
+  riverY: 318,
   riverHeight: 30,
-  playerBoardY: 340,
-  hudY: 710,
-  hudHeight: 90,
+  playerBoardY: 348,
+  hudY: 680,
+  hudHeight: 120,
 
   boardScale: 1,
-  opponentBoardScale: 0.75,
+  opponentBoardScale: 1,
 
   adouColumnWidth: 60,
 
   playerGridStartX: 65,
-  playerGridStartY: 350,
+  playerGridStartY: 380,
 
   opponentGridStartX: 65,
-  opponentGridStartY: 20,
+  opponentGridStartY: 30,
 
-  playerAdouX: 38,
-  playerAdouY: 465,
+  playerAdouX: 32,
+  playerAdouY: 461,
 
-  opponentAdouX: 35,
-  opponentAdouY: 125,
+  opponentAdouX: 32,
+  opponentAdouY: 111,
 
   playerPathCells: [
     { col: 6, row: 1 },
@@ -110,14 +110,14 @@ export const GAME_CONFIG = {
 
   holdingSlots: 5,
 
-  initialBuns: 30,
-  baseRecruitCost: 10,
-  recruitCostIncrement: 2,
-  maxRecruitCost: 50,
+  initialBuns: 60,
+  baseRecruitCost: 2,
+  recruitCostIncrement: 0,
+  maxRecruitCost: 2,
 
   adouLives: 3,
 
-  waveDelay: 2000,
+  waveDelay: 12000,
   betweenWaveDelay: 1500,
 
   recruitWeights: {
@@ -212,7 +212,7 @@ export const GAME_CONFIG = {
   animation: {
     tileSnapDuration: 120,
     mergeDuration: 200,
-    projectileSpeed: 600,
+    projectileSpeed: 280,
     damageNumberDuration: 600,
     deathPuffDuration: 300,
     bunFlyDuration: 400,

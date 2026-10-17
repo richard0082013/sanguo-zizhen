@@ -36,6 +36,8 @@ export class BattleEngine {
   private spawnQueue: { enemy: WaveEnemy; spawnTime: number; healthMultiplier: number; spawnIndex: number }[] = [];
   private opponentSpawnQueue: { enemy: WaveEnemy; spawnTime: number; healthMultiplier: number; spawnIndex: number }[] = [];
   private generalChars: string[] = [];
+  private nextAITime = 0;
+  private nextIncomeTime = 1000;
   private nextTileId = 0;
   private nextEnemyId = 0;
   private nextProjectileId = 0;
@@ -118,6 +120,11 @@ export class BattleEngine {
 
     this.state.gameTime += deltaTime;
 
+    if (this.state.gameTime >= this.nextIncomeTime) {
+      this.state.player.buns += 2;
+      this.state.opponent.buns += 2;
+      this.nextIncomeTime = this.state.gameTime + 1000;
+    }
     this.processSpawnQueues();
     this.updateEnemies(deltaTime, false);
     this.updateEnemies(deltaTime, true);
@@ -280,7 +287,7 @@ export class BattleEngine {
 
       this.moveEnemyAlongPath(enemy, moveDistance, pathCells, isOpponent);
 
-      if (enemy.pathIndex >= pathCells.length - 1 && enemy.pathProgress > 0.9) {
+      if (enemy.pathIndex >= pathCells.length - 1) {
         player.adouLives -= enemy.damage;
         this.emit({
           type: 'ENEMY_REACHED_END',
@@ -473,7 +480,7 @@ export class BattleEngine {
       const dy = proj.targetPosition.y - proj.position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      if (dist < 8) {
+      if (dist <= Math.max(8, proj.speed * deltaTime / 1000)) {
         target.health -= proj.damage;
         this.emit({
           type: 'PROJECTILE_HIT',
@@ -600,8 +607,10 @@ export class BattleEngine {
 
   private updateAI(): void {
     const opponent = this.state.opponent;
+    if (this.state.gameTime < this.nextAITime) return;
+    this.nextAITime = this.state.gameTime + 450;
 
-    if (this.opponentRng.next() < 0.04 && opponent.buns >= opponent.recruitCost) {
+    if (opponent.cells.some(c => !c.isPath && !c.tileId) && opponent.buns >= opponent.recruitCost) {
       this.recruit(true);
     }
 
@@ -625,7 +634,7 @@ export class BattleEngine {
       }
     }
 
-    if (this.opponentRng.next() < 0.02) {
+    if (opponent.tiles.filter(t => t.position).length >= 24) {
       const tilesOnBoard = opponent.tiles.filter((t) => t.position !== null);
       const mergeable = this.findMergeableTiles(tilesOnBoard);
       if (mergeable) {
@@ -810,7 +819,11 @@ export class BattleEngine {
       return false;
     }
 
-    tile.position = position;
+    if (tile.position) {
+      const source = player.cells.find((c) => c.tileId === tileId);
+      if (source) source.tileId = null;
+    }
+    tile.position = { ...position };
     cell.tileId = tileId;
 
     const slotIndex = player.holdingSlots.findIndex((s) => s?.id === tileId);
@@ -831,7 +844,7 @@ export class BattleEngine {
     const tile1 = player.tiles.find((t) => t.id === tile1Id);
     const tile2 = player.tiles.find((t) => t.id === tile2Id);
 
-    if (!tile1 || !tile2) return null;
+    if (!tile1 || !tile2 || tile1Id === tile2Id) return null;
     if (tile1.type !== tile2.type) return null;
     if (tile1.char !== tile2.char) return null;
     if (tile1.level !== tile2.level) return null;
@@ -842,7 +855,7 @@ export class BattleEngine {
       type: tile1.type,
       char: tile1.char,
       level: tile1.level + 1,
-      position: tile1.position || tile2.position,
+      position: tile2.position || tile1.position,
       generalId: tile1.generalId,
       lastAttackTime: 0,
       attackSpeedBuff: 0,
@@ -851,18 +864,14 @@ export class BattleEngine {
       stunnedUntil: 0,
     };
 
-    if (tile1.position) {
-      const cell = player.cells.find(
-        (c) => c.position.col === tile1.position!.col && c.position.row === tile1.position!.row
-      );
-      if (cell) cell.tileId = newTile.id;
-    }
-
-    if (tile2.position) {
-      const cell = player.cells.find(
-        (c) => c.position.col === tile2.position!.col && c.position.row === tile2.position!.row
-      );
-      if (cell) cell.tileId = null;
+    // Clear both sources before assigning the merged tile to the drop target.
+    player.cells.forEach((cell) => {
+      if (cell.tileId === tile1Id || cell.tileId === tile2Id) cell.tileId = null;
+    });
+    if (newTile.position) {
+      const destination = player.cells.find((cell) =>
+        cell.position.col === newTile.position!.col && cell.position.row === newTile.position!.row);
+      if (destination) destination.tileId = newTile.id;
     }
 
     [tile1Id, tile2Id].forEach((id) => {
