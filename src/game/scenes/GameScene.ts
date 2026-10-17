@@ -3,74 +3,74 @@ import { BattleEngine } from '../logic/BattleEngine';
 import { GAME_CONFIG } from '../config/gameConfig';
 import { TILE_CONFIGS, SHOVEL_CONFIG, MAX_TILE_LEVEL } from '../config/tiles';
 import { GENERALS } from '../config/generals';
-import type { TileState, EnemyState, GridPosition, GameEvent } from '../logic/types';
+import { VFXManager } from '../vfx/VFXManager';
+import type { TileState, EnemyState, GridPosition, GameEvent, Position } from '../logic/types';
 
 interface TileSprite {
   container: Phaser.GameObjects.Container;
-  background: Phaser.GameObjects.Rectangle;
-  text: Phaser.GameObjects.Text;
-  levelText: Phaser.GameObjects.Text;
   id: string;
+  slotIndex?: number;
 }
 
 interface EnemySprite {
   container: Phaser.GameObjects.Container;
-  background: Phaser.GameObjects.Rectangle;
-  text: Phaser.GameObjects.Text;
   healthBar: Phaser.GameObjects.Rectangle;
-  healthBarBg: Phaser.GameObjects.Rectangle;
   id: string;
 }
 
-interface ProjectileSprite {
-  circle: Phaser.GameObjects.Arc;
-  id: string;
-}
+type GamePhase = 'start' | 'playing' | 'result';
+
+const CURRENT_MAP = GAME_CONFIG.maps.desert;
 
 export class GameScene extends Phaser.Scene {
   private engine!: BattleEngine;
-  private cellGraphics: Phaser.GameObjects.Rectangle[] = [];
-  private pathGraphics!: Phaser.GameObjects.Graphics;
+  private vfx!: VFXManager;
+  private phase: GamePhase = 'start';
+
+  private playerCells: Phaser.GameObjects.Rectangle[] = [];
+  private opponentCells: Phaser.GameObjects.Rectangle[] = [];
+
   private tileSprites: Map<string, TileSprite> = new Map();
+  private opponentTileSprites: Map<string, TileSprite> = new Map();
   private enemySprites: Map<string, EnemySprite> = new Map();
-  private projectileSprites: Map<string, ProjectileSprite> = new Map();
+  private opponentEnemySprites: Map<string, EnemySprite> = new Map();
+  private projectileSprites: Map<string, Phaser.GameObjects.Container> = new Map();
 
-  private bunsText!: Phaser.GameObjects.Text;
+  private holdingSlotContainers: Phaser.GameObjects.Container[] = [];
+  private playerAdou!: Phaser.GameObjects.Container;
+  private opponentAdou!: Phaser.GameObjects.Container;
+  private playerHearts: Phaser.GameObjects.Text[] = [];
+  private opponentHearts: Phaser.GameObjects.Text[] = [];
+
   private waveText!: Phaser.GameObjects.Text;
-  private livesText!: Phaser.GameObjects.Text;
-  private opponentLivesText!: Phaser.GameObjects.Text;
+  private mapNameText!: Phaser.GameObjects.Text;
+  private bunsText!: Phaser.GameObjects.Text;
   private recruitButton!: Phaser.GameObjects.Container;
-  private recruitCostText!: Phaser.GameObjects.Text;
-  private startWaveButton!: Phaser.GameObjects.Container;
-  private pendingTileSprite: TileSprite | null = null;
-  private messageText!: Phaser.GameObjects.Text;
-  private gameOverContainer!: Phaser.GameObjects.Container;
 
-  private adouSprite!: Phaser.GameObjects.Container;
-  private opponentAdouSprite!: Phaser.GameObjects.Container;
+  private startScreen!: Phaser.GameObjects.Container;
+  private resultScreen!: Phaser.GameObjects.Container;
+  private dangerWarning!: Phaser.GameObjects.Text;
 
-  private dragStartPos: { x: number; y: number } | null = null;
   private draggingTile: TileSprite | null = null;
-  private selectedTileForMerge: TileSprite | null = null;
-
-  private activatedGeneralsText!: Phaser.GameObjects.Text;
+  private dragOrigin: Position | null = null;
+  private dragLine!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super({ key: 'GameScene' });
   }
 
   create(): void {
-    const seed = Date.now();
-    this.engine = new BattleEngine(seed);
-
-    this.engine.addEventListener(this.handleGameEvent.bind(this));
+    this.vfx = new VFXManager({ scene: this });
 
     this.createBackground();
-    this.createPath();
-    this.createGrid();
-    this.createAdou();
-    this.createUI();
-    this.createGameOverUI();
+    this.createStartScreen();
+    this.createGameElements();
+    this.createResultScreen();
+
+    this.dragLine = this.add.graphics();
+    this.dragLine.setDepth(150);
+
+    this.showStartScreen();
 
     this.input.on('pointerdown', this.onPointerDown, this);
     this.input.on('pointermove', this.onPointerMove, this);
@@ -78,695 +78,950 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createBackground(): void {
-    this.cameras.main.setBackgroundColor(GAME_CONFIG.colors.background);
+    const g = this.add.graphics();
 
-    const title = this.add.text(
+    g.fillStyle(Phaser.Display.Color.HexStringToColor(CURRENT_MAP.bgColor).color);
+    g.fillRect(0, 0, GAME_CONFIG.canvasWidth, GAME_CONFIG.canvasHeight);
+
+    for (let y = 0; y < GAME_CONFIG.canvasHeight; y += 8) {
+      g.fillStyle(Phaser.Display.Color.HexStringToColor(CURRENT_MAP.bgPattern).color, 0.3);
+      g.fillRect(0, y, GAME_CONFIG.canvasWidth, 4);
+    }
+
+    g.fillStyle(0x1a1810, 1);
+    g.fillRect(0, GAME_CONFIG.canvasHeight - 130, GAME_CONFIG.canvasWidth, 130);
+  }
+
+  private createStartScreen(): void {
+    this.startScreen = this.add.container(0, 0);
+    this.startScreen.setDepth(1000);
+
+    const overlay = this.add.rectangle(
       GAME_CONFIG.canvasWidth / 2,
-      30,
-      '三国字阵',
-      {
-        fontSize: '28px',
-        fontFamily: 'Arial, sans-serif',
-        color: '#FFD700',
-        fontStyle: 'bold',
-      }
+      GAME_CONFIG.canvasHeight / 2,
+      GAME_CONFIG.canvasWidth,
+      GAME_CONFIG.canvasHeight,
+      0x000000,
+      0.8
     );
+
+    const title = this.add.text(GAME_CONFIG.canvasWidth / 2, 280, '三国字阵', {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: '52px',
+      color: '#f4e8d0',
+      stroke: '#1a1a1a',
+      strokeThickness: 6,
+    });
     title.setOrigin(0.5);
-  }
 
-  private createPath(): void {
-    this.pathGraphics = this.add.graphics();
-    this.pathGraphics.lineStyle(8, 0x2d4a22);
-    this.pathGraphics.fillStyle(0x1e3a14);
-
-    const points = GAME_CONFIG.pathPoints;
-    this.pathGraphics.beginPath();
-    this.pathGraphics.moveTo(points[0].x, points[0].y);
-
-    for (let i = 1; i < points.length; i++) {
-      this.pathGraphics.lineTo(points[i].x, points[i].y);
-    }
-
-    this.pathGraphics.strokePath();
-
-    for (let i = 0; i < points.length - 1; i++) {
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      this.pathGraphics.fillRect(
-        Math.min(p1.x, p2.x) - 4,
-        Math.min(p1.y, p2.y) - 4,
-        Math.abs(p2.x - p1.x) + 8,
-        Math.abs(p2.y - p1.y) + 8
-      );
-    }
-  }
-
-  private createGrid(): void {
-    const state = this.engine.getState();
-    const { gridStartX, gridStartY, cellSize } = GAME_CONFIG;
-
-    state.player.cells.forEach((cell) => {
-      const x = gridStartX + cell.position.col * cellSize;
-      const y = gridStartY + cell.position.row * cellSize;
-
-      const rect = this.add.rectangle(
-        x + cellSize / 2,
-        y + cellSize / 2,
-        cellSize - 4,
-        cellSize - 4,
-        cell.isUnlocked
-          ? Phaser.Display.Color.HexStringToColor(GAME_CONFIG.colors.cellUnlocked).color
-          : Phaser.Display.Color.HexStringToColor(GAME_CONFIG.colors.cellLocked).color
-      );
-      rect.setStrokeStyle(
-        2,
-        Phaser.Display.Color.HexStringToColor(GAME_CONFIG.colors.gridBorder).color
-      );
-      rect.setData('cellPos', cell.position);
-
-      this.cellGraphics.push(rect);
-    });
-  }
-
-  private createAdou(): void {
-    const createAdouSprite = (x: number, y: number, label: string) => {
-      const container = this.add.container(x, y);
-
-      const bg = this.add.rectangle(0, 0, 50, 50, 0xffd700);
-      bg.setStrokeStyle(3, 0xff8c00);
-
-      const text = this.add.text(0, 0, '斗', {
-        fontSize: '32px',
-        fontFamily: 'Arial, sans-serif',
-        color: '#8B0000',
-        fontStyle: 'bold',
-      });
-      text.setOrigin(0.5);
-
-      const labelText = this.add.text(0, 35, label, {
-        fontSize: '12px',
-        fontFamily: 'Arial, sans-serif',
-        color: '#FFD700',
-      });
-      labelText.setOrigin(0.5);
-
-      container.add([bg, text, labelText]);
-      return container;
-    };
-
-    this.adouSprite = createAdouSprite(GAME_CONFIG.adouX, GAME_CONFIG.adouY, '我方阿斗');
-    this.opponentAdouSprite = createAdouSprite(GAME_CONFIG.adouX, 100, '敌方阿斗');
-  }
-
-  private createUI(): void {
-    const uiY = 640;
-
-    this.bunsText = this.add.text(20, uiY, '馒头: 30', {
+    const subtitle = this.add.text(GAME_CONFIG.canvasWidth / 2, 350, '文字合成塔防', {
+      fontFamily: GAME_CONFIG.typography.ui,
       fontSize: '18px',
-      fontFamily: 'Arial, sans-serif',
-      color: GAME_CONFIG.colors.buns,
-      fontStyle: 'bold',
+      color: '#a09080',
+    });
+    subtitle.setOrigin(0.5);
+
+    const startBtn = this.createButton(GAME_CONFIG.canvasWidth / 2, 480, '开始游戏', () => {
+      this.startGame();
     });
 
-    this.waveText = this.add.text(GAME_CONFIG.canvasWidth / 2, 60, '波次: 0/13', {
-      fontSize: '16px',
-      fontFamily: 'Arial, sans-serif',
-      color: GAME_CONFIG.colors.text,
-    });
-    this.waveText.setOrigin(0.5);
-
-    this.livesText = this.add.text(20, uiY + 25, '生命: ❤❤❤', {
-      fontSize: '16px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#FF6B6B',
-    });
-
-    this.opponentLivesText = this.add.text(GAME_CONFIG.canvasWidth - 120, 60, '敌方: ❤❤❤', {
-      fontSize: '14px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#FF6B6B',
-    });
-
-    const recruitBg = this.add.rectangle(0, 0, 100, 45, 0xe94560);
-    recruitBg.setStrokeStyle(2, 0xffffff);
-    const recruitText = this.add.text(0, -8, '征兵', {
-      fontSize: '16px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#fff',
-      fontStyle: 'bold',
-    });
-    recruitText.setOrigin(0.5);
-    this.recruitCostText = this.add.text(0, 10, '花费: 10', {
-      fontSize: '12px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#fff',
-    });
-    this.recruitCostText.setOrigin(0.5);
-
-    this.recruitButton = this.add.container(80, 700, [
-      recruitBg,
-      recruitText,
-      this.recruitCostText,
-    ]);
-    this.recruitButton.setSize(100, 45);
-    this.recruitButton.setInteractive();
-    this.recruitButton.on('pointerdown', this.onRecruitClick, this);
-
-    const startBg = this.add.rectangle(0, 0, 100, 45, 0x228b22);
-    startBg.setStrokeStyle(2, 0xffffff);
-    const startText = this.add.text(0, 0, '开始波次', {
-      fontSize: '16px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#fff',
-      fontStyle: 'bold',
-    });
-    startText.setOrigin(0.5);
-
-    this.startWaveButton = this.add.container(320, 700, [startBg, startText]);
-    this.startWaveButton.setSize(100, 45);
-    this.startWaveButton.setInteractive();
-    this.startWaveButton.on('pointerdown', this.onStartWaveClick, this);
-
-    this.messageText = this.add.text(
-      GAME_CONFIG.canvasWidth / 2,
-      GAME_CONFIG.canvasHeight / 2 - 100,
-      '',
-      {
-        fontSize: '24px',
-        fontFamily: 'Arial, sans-serif',
-        color: '#FFD700',
-        fontStyle: 'bold',
-        stroke: '#000',
-        strokeThickness: 4,
-      }
-    );
-    this.messageText.setOrigin(0.5);
-    this.messageText.setAlpha(0);
-
-    this.activatedGeneralsText = this.add.text(200, uiY, '', {
-      fontSize: '14px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#98FB98',
-    });
+    this.startScreen.add([overlay, title, subtitle, startBtn]);
   }
 
-  private createGameOverUI(): void {
-    this.gameOverContainer = this.add.container(
-      GAME_CONFIG.canvasWidth / 2,
-      GAME_CONFIG.canvasHeight / 2
-    );
-
-    const bg = this.add.rectangle(0, 0, 300, 200, 0x000000, 0.8);
-    bg.setStrokeStyle(3, 0xffd700);
-
-    const titleText = this.add.text(0, -60, '游戏结束', {
-      fontSize: '32px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#FFD700',
-      fontStyle: 'bold',
-    });
-    titleText.setOrigin(0.5);
-
-    const resultText = this.add.text(0, 0, '', {
-      fontSize: '24px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#fff',
-    });
-    resultText.setOrigin(0.5);
-    resultText.setData('type', 'result');
-
-    const restartBg = this.add.rectangle(0, 60, 120, 40, 0xe94560);
-    restartBg.setStrokeStyle(2, 0xffffff);
-    restartBg.setInteractive();
-    restartBg.on('pointerdown', this.onRestartClick, this);
-
-    const restartText = this.add.text(0, 60, '再来一局', {
-      fontSize: '18px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#fff',
-      fontStyle: 'bold',
-    });
-    restartText.setOrigin(0.5);
-
-    this.gameOverContainer.add([bg, titleText, resultText, restartBg, restartText]);
-    this.gameOverContainer.setVisible(false);
-    this.gameOverContainer.setDepth(1000);
-  }
-
-  private onRecruitClick(): void {
-    const state = this.engine.getState();
-    if (state.player.pendingTile) {
-      this.showMessage('请先放置当前字牌');
-      return;
-    }
-
-    const tile = this.engine.recruit(false);
-    if (tile) {
-      this.createPendingTileSprite(tile);
-    } else {
-      this.showMessage('馒头不足!');
-    }
-  }
-
-  private onStartWaveClick(): void {
-    const success = this.engine.startNextWave();
-    if (!success) {
-      const state = this.engine.getState();
-      if (state.isWaveActive) {
-        this.showMessage('波次进行中...');
-      } else if (state.currentWave >= 13) {
-        this.showMessage('已完成所有波次!');
-      }
-    }
-  }
-
-  private onRestartClick(): void {
-    this.scene.restart();
-  }
-
-  private createPendingTileSprite(tile: TileState): void {
-    if (this.pendingTileSprite) {
-      this.pendingTileSprite.container.destroy();
-    }
-
-    const x = GAME_CONFIG.canvasWidth / 2;
-    const y = 580;
-
-    const sprite = this.createTileSprite(tile, x, y);
-    sprite.container.setData('tileId', tile.id);
-    sprite.container.setData('isPending', true);
-
-    this.pendingTileSprite = sprite;
-    this.tileSprites.set(tile.id, sprite);
-
-    const typeLabel =
-      tile.type === 'shovel'
-        ? '铲子 - 点击锁定格解锁'
-        : tile.type === 'general'
-        ? '武将字'
-        : TILE_CONFIGS[tile.type]?.name || '';
-
-    this.showMessage(`获得: ${tile.char} (${typeLabel})`);
-  }
-
-  private createTileSprite(tile: TileState, x: number, y: number): TileSprite {
+  private createButton(x: number, y: number, text: string, callback: () => void): Phaser.GameObjects.Container {
     const container = this.add.container(x, y);
-    const size = GAME_CONFIG.cellSize - 8;
 
-    let color = '#666';
-    if (tile.type === 'shovel') {
-      color = SHOVEL_CONFIG.color;
-    } else if (tile.type === 'general') {
-      color = '#9400D3';
-    } else {
-      color = TILE_CONFIGS[tile.type]?.color || '#666';
+    const bg = this.add.graphics();
+    bg.fillStyle(0x8b4513, 1);
+    bg.fillRoundedRect(-70, -25, 140, 50, 8);
+    bg.lineStyle(3, 0x5c2e0a);
+    bg.strokeRoundedRect(-70, -25, 140, 50, 8);
+
+    const label = this.add.text(0, 0, text, {
+      fontFamily: GAME_CONFIG.typography.ui,
+      fontSize: '20px',
+      color: '#f4e8d0',
+    });
+    label.setOrigin(0.5);
+
+    container.add([bg, label]);
+    container.setSize(140, 50);
+    container.setInteractive();
+
+    container.on('pointerdown', () => {
+      this.tweens.add({
+        targets: container,
+        scaleX: 0.95,
+        scaleY: 0.95,
+        duration: 50,
+        yoyo: true,
+        onComplete: callback,
+      });
+    });
+
+    return container;
+  }
+
+  private createGameElements(): void {
+    this.createOpponentBoard();
+    this.createRiverDivider();
+    this.createPlayerBoard();
+    this.createHUD();
+    this.createDangerWarning();
+  }
+
+  private createOpponentBoard(): void {
+    const { opponentGridStartX, opponentGridStartY, cellSize, opponentBoardScale, gridCols, gridRows, opponentPathCells } = GAME_CONFIG;
+    const scaledSize = cellSize * opponentBoardScale;
+    const pathSet = new Set(opponentPathCells.map((p) => `${p.col},${p.row}`));
+
+    this.opponentAdou = this.createAdou(GAME_CONFIG.opponentAdouX, GAME_CONFIG.opponentAdouY, true);
+
+    this.opponentHearts = [];
+    for (let i = 0; i < GAME_CONFIG.adouLives; i++) {
+      const heart = this.add.text(GAME_CONFIG.opponentAdouX - 10 + i * 14, GAME_CONFIG.opponentAdouY - 30, '❤', {
+        fontSize: '12px',
+        color: '#e53935',
+      });
+      heart.setOrigin(0.5);
+      this.opponentHearts.push(heart);
     }
 
-    const bg = this.add.rectangle(
-      0,
-      0,
-      size,
-      size,
-      Phaser.Display.Color.HexStringToColor(color).color
-    );
-    bg.setStrokeStyle(2, 0xffffff);
+    for (let row = 0; row < gridRows; row++) {
+      for (let col = 0; col < gridCols; col++) {
+        const x = opponentGridStartX + col * scaledSize;
+        const y = opponentGridStartY + row * scaledSize;
+        const isPath = pathSet.has(`${col},${row}`);
 
-    const text = this.add.text(0, 0, tile.char, {
-      fontSize: '28px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#fff',
-      fontStyle: 'bold',
+        const cell = this.add.rectangle(
+          x + scaledSize / 2,
+          y + scaledSize / 2,
+          scaledSize - 1,
+          scaledSize - 1,
+          Phaser.Display.Color.HexStringToColor(isPath ? CURRENT_MAP.pathColor : CURRENT_MAP.cellColor).color
+        );
+
+        if (!isPath) {
+          cell.setStrokeStyle(1, Phaser.Display.Color.HexStringToColor(CURRENT_MAP.cellBorder).color);
+        }
+
+        cell.setData('cellPos', { col, row });
+        cell.setData('isOpponent', true);
+        cell.setData('isPath', isPath);
+        this.opponentCells.push(cell);
+      }
+    }
+  }
+
+  private createRiverDivider(): void {
+    const y = 295;
+    const g = this.add.graphics();
+
+    g.fillStyle(0x4a6a8a, 0.6);
+    g.fillRect(0, y - 8, GAME_CONFIG.canvasWidth, 16);
+
+    g.lineStyle(2, 0x6a8aaa, 0.8);
+    g.lineBetween(0, y - 8, GAME_CONFIG.canvasWidth, y - 8);
+    g.lineBetween(0, y + 8, GAME_CONFIG.canvasWidth, y + 8);
+
+    for (let x = 0; x < GAME_CONFIG.canvasWidth; x += 30) {
+      g.lineStyle(1, 0x8aaaca, 0.4);
+      g.lineBetween(x, y - 5, x + 15, y + 5);
+    }
+  }
+
+  private createPlayerBoard(): void {
+    const { playerGridStartX, playerGridStartY, cellSize, gridCols, gridRows, playerPathCells } = GAME_CONFIG;
+    const pathSet = new Set(playerPathCells.map((p) => `${p.col},${p.row}`));
+
+    this.playerAdou = this.createAdou(GAME_CONFIG.playerAdouX, GAME_CONFIG.playerAdouY, false);
+
+    this.playerHearts = [];
+    for (let i = 0; i < GAME_CONFIG.adouLives; i++) {
+      const heart = this.add.text(GAME_CONFIG.playerAdouX - 15 + i * 18, GAME_CONFIG.playerAdouY - 45, '❤', {
+        fontSize: '16px',
+        color: '#e53935',
+      });
+      heart.setOrigin(0.5);
+      this.playerHearts.push(heart);
+    }
+
+    for (let row = 0; row < gridRows; row++) {
+      for (let col = 0; col < gridCols; col++) {
+        const x = playerGridStartX + col * cellSize;
+        const y = playerGridStartY + row * cellSize;
+        const isPath = pathSet.has(`${col},${row}`);
+
+        const cell = this.add.rectangle(
+          x + cellSize / 2,
+          y + cellSize / 2,
+          cellSize - 2,
+          cellSize - 2,
+          Phaser.Display.Color.HexStringToColor(isPath ? CURRENT_MAP.pathColor : CURRENT_MAP.cellColor).color
+        );
+
+        if (!isPath) {
+          cell.setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(CURRENT_MAP.cellBorder).color);
+        }
+
+        cell.setData('cellPos', { col, row });
+        cell.setData('isOpponent', false);
+        cell.setData('isPath', isPath);
+        this.playerCells.push(cell);
+      }
+    }
+  }
+
+  private createAdou(x: number, y: number, isSmall: boolean): Phaser.GameObjects.Container {
+    const container = this.add.container(x, y);
+    const size = isSmall ? 35 : 50;
+
+    const basket = this.add.graphics();
+    basket.fillStyle(0xc9a227, 1);
+    basket.fillRoundedRect(-size / 2, -size / 2, size, size, 6);
+    basket.lineStyle(2, 0x8a7017);
+    basket.strokeRoundedRect(-size / 2, -size / 2, size, size, 6);
+
+    const text = this.add.text(0, 0, '斗', {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: isSmall ? '20px' : '28px',
+      color: '#8b0000',
     });
     text.setOrigin(0.5);
 
-    const levelText = this.add.text(size / 2 - 8, -size / 2 + 8, `${tile.level}`, {
+    container.add([basket, text]);
+    return container;
+  }
+
+  private getPathWorldPositions(isOpponent: boolean): Position[] {
+    const pathCells = isOpponent ? GAME_CONFIG.opponentPathCells : GAME_CONFIG.playerPathCells;
+    const startX = isOpponent ? GAME_CONFIG.opponentGridStartX : GAME_CONFIG.playerGridStartX;
+    const startY = isOpponent ? GAME_CONFIG.opponentGridStartY : GAME_CONFIG.playerGridStartY;
+    const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : GAME_CONFIG.boardScale;
+    const cellSize = GAME_CONFIG.cellSize * scale;
+
+    return pathCells.map((cell) => ({
+      x: startX + cell.col * cellSize + cellSize / 2,
+      y: startY + cell.row * cellSize + cellSize / 2,
+    }));
+  }
+
+  private createHUD(): void {
+    this.mapNameText = this.add.text(GAME_CONFIG.canvasWidth / 2, 20, CURRENT_MAP.name, {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: '22px',
+      color: '#f4e8d0',
+      stroke: '#1a1a1a',
+      strokeThickness: 3,
+    });
+    this.mapNameText.setOrigin(0.5);
+
+    this.waveText = this.add.text(GAME_CONFIG.canvasWidth / 2, 45, '第1波', {
+      fontFamily: GAME_CONFIG.typography.ui,
       fontSize: '14px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#FFD700',
-      fontStyle: 'bold',
+      color: '#d4a537',
     });
-    levelText.setOrigin(0.5);
+    this.waveText.setOrigin(0.5);
 
-    if (tile.type === 'shovel') {
-      levelText.setVisible(false);
+    const campIcon = this.add.graphics();
+    campIcon.fillStyle(0x5c4a3a, 1);
+    campIcon.fillRoundedRect(8, GAME_CONFIG.canvasHeight - 118, 40, 40, 6);
+    campIcon.lineStyle(2, 0x3a2a1a);
+    campIcon.strokeRoundedRect(8, GAME_CONFIG.canvasHeight - 118, 40, 40, 6);
+
+    const campText = this.add.text(28, GAME_CONFIG.canvasHeight - 98, '营', {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: '24px',
+      color: '#f4e8d0',
+    });
+    campText.setOrigin(0.5);
+
+    const slotStartX = 58;
+    const slotY = GAME_CONFIG.canvasHeight - 98;
+    const slotWidth = 48;
+    const slotGap = 4;
+
+    for (let i = 0; i < GAME_CONFIG.holdingSlots; i++) {
+      const slotX = slotStartX + i * (slotWidth + slotGap);
+
+      const slotBg = this.add.graphics();
+      slotBg.fillStyle(0x3a3028, 1);
+      slotBg.fillRoundedRect(slotX, slotY - 24, slotWidth, slotWidth, 4);
+      slotBg.lineStyle(1, 0x5a5048);
+      slotBg.strokeRoundedRect(slotX, slotY - 24, slotWidth, slotWidth, 4);
+
+      const container = this.add.container(slotX + slotWidth / 2, slotY);
+      container.setData('slotIndex', i);
+      this.holdingSlotContainers.push(container);
     }
 
-    container.add([bg, text, levelText]);
-    container.setSize(size, size);
-    container.setInteractive();
+    this.recruitButton = this.add.container(GAME_CONFIG.canvasWidth / 2, GAME_CONFIG.canvasHeight - 35);
 
-    return {
-      container,
-      background: bg,
-      text,
-      levelText,
-      id: tile.id,
-    };
+    const recruitBg = this.add.graphics();
+    recruitBg.fillStyle(0x8b4513, 1);
+    recruitBg.fillRoundedRect(-55, -22, 110, 44, 8);
+    recruitBg.lineStyle(2, 0x5c2e0a);
+    recruitBg.strokeRoundedRect(-55, -22, 110, 44, 8);
+
+    const bunIcon = this.add.text(-35, 0, '🍞', { fontSize: '18px' });
+    bunIcon.setOrigin(0.5);
+
+    const recruitLabel = this.add.text(0, -5, '征兵', {
+      fontFamily: GAME_CONFIG.typography.ui,
+      fontSize: '16px',
+      color: '#f4e8d0',
+    });
+    recruitLabel.setOrigin(0.5);
+
+    this.bunsText = this.add.text(0, 12, '10', {
+      fontFamily: GAME_CONFIG.typography.ui,
+      fontSize: '12px',
+      color: '#d4a537',
+    });
+    this.bunsText.setOrigin(0.5);
+
+    this.recruitButton.add([recruitBg, bunIcon, recruitLabel, this.bunsText]);
+    this.recruitButton.setSize(110, 44);
+    this.recruitButton.setInteractive();
+    this.recruitButton.on('pointerdown', () => this.onRecruitClick());
+
+    const bunsDisplay = this.add.container(GAME_CONFIG.canvasWidth - 50, GAME_CONFIG.canvasHeight - 35);
+    const bunsBg = this.add.graphics();
+    bunsBg.fillStyle(0x3a3028, 0.8);
+    bunsBg.fillRoundedRect(-30, -15, 60, 30, 6);
+
+    const bunsIcon = this.add.text(-15, 0, '🍞', { fontSize: '14px' });
+    bunsIcon.setOrigin(0.5);
+
+    this.bunsText = this.add.text(10, 0, '30', {
+      fontFamily: GAME_CONFIG.typography.ui,
+      fontSize: '14px',
+      color: '#d4a537',
+    });
+    this.bunsText.setOrigin(0.5);
+
+    bunsDisplay.add([bunsBg, bunsIcon, this.bunsText]);
   }
 
-  private onPointerDown(pointer: Phaser.Input.Pointer): void {
-    const state = this.engine.getState();
+  private createDangerWarning(): void {
+    this.dangerWarning = this.add.text(GAME_CONFIG.canvasWidth / 2, 400, '危', {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: '80px',
+      color: '#ff0000',
+      stroke: '#000000',
+      strokeThickness: 6,
+    });
+    this.dangerWarning.setOrigin(0.5);
+    this.dangerWarning.setAlpha(0);
+    this.dangerWarning.setDepth(500);
+  }
 
-    const cellClicked = this.cellGraphics.find((cell) => {
-      const bounds = cell.getBounds();
-      return bounds.contains(pointer.x, pointer.y);
+  private createResultScreen(): void {
+    this.resultScreen = this.add.container(0, 0);
+    this.resultScreen.setDepth(1000);
+    this.resultScreen.setVisible(false);
+
+    const overlay = this.add.rectangle(
+      GAME_CONFIG.canvasWidth / 2,
+      GAME_CONFIG.canvasHeight / 2,
+      GAME_CONFIG.canvasWidth,
+      GAME_CONFIG.canvasHeight,
+      0x000000,
+      0.85
+    );
+
+    const resultTitle = this.add.text(GAME_CONFIG.canvasWidth / 2, 350, '', {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: '48px',
+      color: '#f4e8d0',
+      stroke: '#1a1a1a',
+      strokeThickness: 4,
+    });
+    resultTitle.setOrigin(0.5);
+    resultTitle.setData('type', 'title');
+
+    const restartBtn = this.createButton(GAME_CONFIG.canvasWidth / 2, 480, '再来一局', () => {
+      this.scene.restart();
     });
 
-    if (cellClicked && this.pendingTileSprite) {
-      const cellPos = cellClicked.getData('cellPos') as GridPosition;
-      const pendingTile = state.player.pendingTile;
+    this.resultScreen.add([overlay, resultTitle, restartBtn]);
+  }
 
-      if (pendingTile) {
-        if (pendingTile.type === 'shovel') {
-          const cell = state.player.cells.find(
-            (c) => c.position.col === cellPos.col && c.position.row === cellPos.row
-          );
-          if (cell && !cell.isUnlocked) {
-            const success = this.engine.unlockCell(cellPos, false);
-            if (success) {
-              this.updateCellGraphics(cellPos, true);
-              this.pendingTileSprite.container.destroy();
-              this.pendingTileSprite = null;
-              this.tileSprites.delete(pendingTile.id);
-              this.showMessage('解锁成功!');
-            }
-          } else {
-            this.showMessage('请选择锁定的格子');
-          }
-          return;
-        }
+  private showStartScreen(): void {
+    this.phase = 'start';
+    this.startScreen.setVisible(true);
+  }
 
-        const cell = state.player.cells.find(
-          (c) => c.position.col === cellPos.col && c.position.row === cellPos.row
-        );
+  private startGame(): void {
+    const seed = Date.now();
+    this.engine = new BattleEngine(seed);
+    this.engine.addEventListener(this.handleGameEvent.bind(this));
 
-        if (cell && cell.isUnlocked && !cell.tileId) {
-          const success = this.engine.placeTile(pendingTile.id, cellPos, false);
-          if (success) {
-            const x =
-              GAME_CONFIG.gridStartX +
-              cellPos.col * GAME_CONFIG.cellSize +
-              GAME_CONFIG.cellSize / 2;
-            const y =
-              GAME_CONFIG.gridStartY +
-              cellPos.row * GAME_CONFIG.cellSize +
-              GAME_CONFIG.cellSize / 2;
+    this.phase = 'playing';
+    this.startScreen.setVisible(false);
 
-            this.pendingTileSprite.container.setPosition(x, y);
-            this.pendingTileSprite.container.setData('isPending', false);
-            this.pendingTileSprite = null;
-          }
-        }
-      }
-      return;
-    }
+    this.tileSprites.clear();
+    this.opponentTileSprites.clear();
+    this.enemySprites.clear();
+    this.opponentEnemySprites.clear();
+    this.projectileSprites.clear();
 
-    this.tileSprites.forEach((sprite) => {
-      const bounds = sprite.container.getBounds();
-      if (bounds.contains(pointer.x, pointer.y)) {
-        const isPending = sprite.container.getData('isPending');
-        if (!isPending) {
-          const tile = state.player.tiles.find((t) => t.id === sprite.id);
-          if (tile && tile.position) {
-            if (this.selectedTileForMerge) {
-              const selectedTile = state.player.tiles.find(
-                (t) => t.id === this.selectedTileForMerge!.id
-              );
-              if (
-                selectedTile &&
-                selectedTile.type === tile.type &&
-                selectedTile.char === tile.char &&
-                selectedTile.level === tile.level &&
-                selectedTile.level < MAX_TILE_LEVEL &&
-                selectedTile.id !== tile.id
-              ) {
-                const newTile = this.engine.mergeTiles(selectedTile.id, tile.id, false);
-                if (newTile) {
-                  this.showMessage(`合成成功! 等级 ${newTile.level}`);
-                }
-              }
-              this.selectedTileForMerge.background.setStrokeStyle(2, 0xffffff);
-              this.selectedTileForMerge = null;
-            } else {
-              this.selectedTileForMerge = sprite;
-              sprite.background.setStrokeStyle(3, 0x00ff00);
-            }
-          }
-        }
-      }
+    this.time.delayedCall(500, () => {
+      this.engine.startNextWave();
     });
-  }
-
-  private onPointerMove(pointer: Phaser.Input.Pointer): void {
-    if (this.draggingTile) {
-      this.draggingTile.container.setPosition(pointer.x, pointer.y);
-    }
-  }
-
-  private onPointerUp(_pointer: Phaser.Input.Pointer): void {
-    this.draggingTile = null;
-  }
-
-  private updateCellGraphics(pos: GridPosition, isUnlocked: boolean): void {
-    const cell = this.cellGraphics.find((c) => {
-      const cellPos = c.getData('cellPos') as GridPosition;
-      return cellPos.col === pos.col && cellPos.row === pos.row;
-    });
-
-    if (cell) {
-      cell.setFillStyle(
-        isUnlocked
-          ? Phaser.Display.Color.HexStringToColor(GAME_CONFIG.colors.cellUnlocked).color
-          : Phaser.Display.Color.HexStringToColor(GAME_CONFIG.colors.cellLocked).color
-      );
-    }
   }
 
   private handleGameEvent(event: GameEvent): void {
     switch (event.type) {
       case 'WAVE_STARTED':
-        this.showMessage(`第 ${event.waveNumber} 波开始!`);
-        break;
-
-      case 'WAVE_COMPLETED':
-        this.showMessage(`第 ${event.waveNumber} 波完成!`);
+        this.waveText.setText(`第${event.waveNumber}波`);
         break;
 
       case 'ENEMY_KILLED':
-        if (!event.isOpponent) {
-          this.showFloatingText('+' + event.reward, GAME_CONFIG.colors.buns);
+        this.onEnemyKilled(event.enemyId, event.reward, event.isOpponent, event.position);
+        break;
+
+      case 'ENEMY_REACHED_END':
+        this.onEnemyReachedEnd(event.isOpponent);
+        break;
+
+      case 'PROJECTILE_HIT':
+        this.showDamageNumber(event.position.x, event.position.y, event.damage, false);
+        break;
+
+      case 'TILE_ATTACK':
+        if (!event.isRanged) {
+          this.showAttackEffect(event.fromPos, event.toPos, event.tileType);
         }
+        if (event.level && event.level >= 3) {
+          this.vfx.highLevelAttack(event.fromPos, event.toPos, event.level, event.tileType || 'sword');
+        }
+        break;
+
+      case 'RECRUIT':
+        if (!event.isOpponent) {
+          this.createHoldingSlotTile(event.slotIndex);
+        }
+        break;
+
+      case 'TILES_MERGED':
+        if (!event.isOpponent) {
+          this.onTilesMerged(event.tile1Id, event.tile2Id, event.newTileId);
+        }
+        break;
+
+      case 'BOSS_SPAWN':
+        this.showDangerWarning();
+        break;
+
+      case 'GAME_OVER':
+        this.showResult(event.winner);
         break;
 
       case 'GENERAL_ACTIVATED':
         if (!event.isOpponent) {
           const general = GENERALS.find((g) => g.id === event.generalId);
           if (general) {
-            this.showMessage(`${general.name} 激活! ${general.skillName}`);
+            this.showAnnouncement(`${general.name}激活！`);
+            const pathPoints = this.getPathWorldPositions(false);
+            const centerX = GAME_CONFIG.playerGridStartX + (GAME_CONFIG.gridCols * GAME_CONFIG.cellSize) / 2;
+            const centerY = GAME_CONFIG.playerGridStartY + (GAME_CONFIG.gridRows * GAME_CONFIG.cellSize) / 2;
+            this.vfx.generalSkillEffect(event.generalId, { x: centerX, y: centerY }, pathPoints);
           }
         }
         break;
-
-      case 'GAME_OVER':
-        this.showGameOver(event.winner);
-        break;
-
-      case 'TILES_MERGED':
-        if (!event.isOpponent) {
-          this.handleTilesMerged(event.tile1Id, event.tile2Id, event.newTileId);
-        }
-        break;
     }
   }
 
-  private handleTilesMerged(tile1Id: string, tile2Id: string, newTileId: string): void {
+  private createHoldingSlotTile(slotIndex: number): void {
+    const state = this.engine.getState();
+    const tile = state.player.holdingSlots[slotIndex];
+    if (!tile) return;
+
+    const container = this.holdingSlotContainers[slotIndex];
+    if (!container) return;
+
+    const sprite = this.createTileSprite(tile, false);
+    sprite.container.setPosition(container.x, container.y);
+    sprite.slotIndex = slotIndex;
+    this.tileSprites.set(tile.id, sprite);
+
+    sprite.container.setScale(0);
+    this.tweens.add({
+      targets: sprite.container,
+      scale: 1,
+      duration: 150,
+      ease: 'Back.easeOut',
+    });
+  }
+
+  private createTileSprite(tile: TileState, isOpponent: boolean): TileSprite {
+    const size = isOpponent ? 32 : 42;
+
+    const container = this.add.container(0, 0);
+    container.setDepth(100);
+
+    const levelColor = GAME_CONFIG.levelColors[tile.level as keyof typeof GAME_CONFIG.levelColors] || GAME_CONFIG.levelColors[1];
+    const borderColor = GAME_CONFIG.levelBorderColors[tile.level as keyof typeof GAME_CONFIG.levelBorderColors] || GAME_CONFIG.levelBorderColors[1];
+
+    const shadow = this.add.rectangle(2, 2, size, size, 0x000000, 0.3);
+
+    const bg = this.add.rectangle(0, 0, size, size, Phaser.Display.Color.HexStringToColor(levelColor).color);
+    bg.setStrokeStyle(2, Phaser.Display.Color.HexStringToColor(borderColor).color);
+
+    let textColor = '#1a1a1a';
+    if (tile.type === 'general') {
+      const general = GENERALS.find((g) => g.chars.includes(tile.char));
+      if (general) {
+        textColor = GAME_CONFIG.colors[general.faction] || '#1a1a1a';
+      }
+    }
+
+    const text = this.add.text(0, 0, tile.char, {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: isOpponent ? '18px' : '24px',
+      color: textColor,
+    });
+    text.setOrigin(0.5);
+
+    const levelBadge = this.add.text(size / 2 - 6, -size / 2 + 6, `${tile.level}`, {
+      fontFamily: GAME_CONFIG.typography.ui,
+      fontSize: '10px',
+      color: '#1a1a1a',
+    });
+    levelBadge.setOrigin(0.5);
+
+    container.add([shadow, bg, text, levelBadge]);
+    container.setSize(size, size);
+    container.setInteractive();
+    container.setData('tileId', tile.id);
+
+    return { container, id: tile.id };
+  }
+
+  private onEnemyKilled(enemyId: string, reward: number, isOpponent: boolean, position: Position): void {
+    const sprites = isOpponent ? this.opponentEnemySprites : this.enemySprites;
+    const sprite = sprites.get(enemyId);
+
+    if (sprite) {
+      this.createDeathPuff(sprite.container.x, sprite.container.y);
+      this.flyBunToCounter(sprite.container.x, sprite.container.y, isOpponent);
+
+      sprite.container.destroy();
+      sprites.delete(enemyId);
+    }
+  }
+
+  private createDeathPuff(x: number, y: number): void {
+    const puff = this.add.graphics();
+    puff.fillStyle(0x1a1a1a, 0.8);
+    puff.fillCircle(x, y, 15);
+    puff.setDepth(200);
+
+    this.tweens.add({
+      targets: puff,
+      alpha: 0,
+      scale: 2,
+      duration: GAME_CONFIG.animation.deathPuffDuration,
+      onComplete: () => puff.destroy(),
+    });
+  }
+
+  private flyBunToCounter(fromX: number, fromY: number, isOpponent: boolean): void {
+    if (isOpponent) return;
+
+    const bun = this.add.text(fromX, fromY, '🍞', { fontSize: '16px' });
+    bun.setOrigin(0.5);
+    bun.setDepth(300);
+
+    const targetX = GAME_CONFIG.canvasWidth - 50;
+    const targetY = GAME_CONFIG.canvasHeight - 35;
+
+    this.tweens.add({
+      targets: bun,
+      x: targetX,
+      y: targetY,
+      scale: 0.5,
+      duration: GAME_CONFIG.animation.bunFlyDuration,
+      ease: 'Quad.easeIn',
+      onComplete: () => bun.destroy(),
+    });
+  }
+
+  private onEnemyReachedEnd(isOpponent: boolean): void {
+    const adou = isOpponent ? this.opponentAdou : this.playerAdou;
+    const hearts = isOpponent ? this.opponentHearts : this.playerHearts;
+
+    this.tweens.add({
+      targets: adou,
+      x: adou.x + 8,
+      duration: 40,
+      yoyo: true,
+      repeat: 4,
+    });
+
+    const state = this.engine.getState();
+    const lives = isOpponent ? state.opponent.adouLives : state.player.adouLives;
+
+    hearts.forEach((heart, i) => {
+      if (i >= lives) {
+        heart.setText('♡');
+        heart.setColor('#4a4a4a');
+      }
+    });
+
+    if (!isOpponent) {
+      this.cameras.main.shake(150, 0.01);
+    }
+  }
+
+  private showDamageNumber(x: number, y: number, damage: number, isCrit: boolean): void {
+    const color = isCrit ? GAME_CONFIG.colors.damageCrit : GAME_CONFIG.colors.damageNormal;
+    const text = this.add.text(x, y, `-${damage}`, {
+      fontFamily: GAME_CONFIG.typography.ui,
+      fontSize: isCrit ? '18px' : '14px',
+      color: color,
+      stroke: '#ffffff',
+      strokeThickness: 2,
+    });
+    text.setOrigin(0.5);
+    text.setDepth(400);
+
+    this.tweens.add({
+      targets: text,
+      y: y - 30,
+      alpha: 0,
+      duration: GAME_CONFIG.animation.damageNumberDuration,
+      ease: 'Quad.easeOut',
+      onComplete: () => text.destroy(),
+    });
+  }
+
+  private showAttackEffect(from: Position, to: Position, tileType: string): void {
+    const g = this.add.graphics();
+    g.setDepth(150);
+
+    if (tileType === 'sword') {
+      g.lineStyle(3, 0x333333, 0.8);
+    } else if (tileType === 'spear') {
+      g.lineStyle(2, 0x666666, 0.8);
+    } else {
+      g.lineStyle(2, 0x444444, 0.6);
+    }
+
+    g.lineBetween(from.x, from.y, to.x, to.y);
+
+    this.tweens.add({
+      targets: g,
+      alpha: 0,
+      duration: 100,
+      onComplete: () => g.destroy(),
+    });
+  }
+
+  private onTilesMerged(tile1Id: string, tile2Id: string, newTileId: string): void {
     const sprite1 = this.tileSprites.get(tile1Id);
     const sprite2 = this.tileSprites.get(tile2Id);
 
-    if (sprite1) {
-      sprite1.container.destroy();
-      this.tileSprites.delete(tile1Id);
-    }
-    if (sprite2) {
-      sprite2.container.destroy();
-      this.tileSprites.delete(tile2Id);
-    }
+    const targetPos = sprite1?.container ? { x: sprite1.container.x, y: sprite1.container.y } : null;
+
+    [sprite1, sprite2].forEach((s) => {
+      if (s) {
+        s.container.destroy();
+        this.tileSprites.delete(s.id);
+      }
+    });
 
     const state = this.engine.getState();
     const newTile = state.player.tiles.find((t) => t.id === newTileId);
-    if (newTile && newTile.position) {
-      const x =
-        GAME_CONFIG.gridStartX +
-        newTile.position.col * GAME_CONFIG.cellSize +
-        GAME_CONFIG.cellSize / 2;
-      const y =
-        GAME_CONFIG.gridStartY +
-        newTile.position.row * GAME_CONFIG.cellSize +
-        GAME_CONFIG.cellSize / 2;
 
-      const sprite = this.createTileSprite(newTile, x, y);
-      sprite.container.setData('tileId', newTile.id);
-      this.tileSprites.set(newTile.id, sprite);
-    }
-  }
+    if (newTile && targetPos) {
+      const sprite = this.createTileSprite(newTile, false);
 
-  private showMessage(text: string): void {
-    this.messageText.setText(text);
-    this.messageText.setAlpha(1);
-
-    this.tweens.add({
-      targets: this.messageText,
-      alpha: 0,
-      duration: 2000,
-      ease: 'Power2',
-    });
-  }
-
-  private showFloatingText(text: string, color: string): void {
-    const floatText = this.add.text(
-      GAME_CONFIG.canvasWidth / 2,
-      GAME_CONFIG.canvasHeight / 2,
-      text,
-      {
-        fontSize: '20px',
-        fontFamily: 'Arial, sans-serif',
-        color: color,
-        fontStyle: 'bold',
+      if (newTile.position) {
+        const pos = this.engine.gridToWorld(newTile.position, false);
+        sprite.container.setPosition(pos.x, pos.y);
+      } else {
+        sprite.container.setPosition(targetPos.x, targetPos.y);
       }
-    );
-    floatText.setOrigin(0.5);
+
+      this.tileSprites.set(newTileId, sprite);
+
+      sprite.container.setScale(0);
+      this.tweens.add({
+        targets: sprite.container,
+        scale: 1,
+        duration: 200,
+        ease: 'Back.easeOut',
+      });
+
+      this.createMergeFlash(sprite.container.x, sprite.container.y);
+    }
+  }
+
+  private createMergeFlash(x: number, y: number): void {
+    const flash = this.add.graphics();
+    flash.fillStyle(0xffffff, 0.8);
+    flash.fillCircle(x, y, 30);
+    flash.setDepth(200);
 
     this.tweens.add({
-      targets: floatText,
-      y: floatText.y - 50,
+      targets: flash,
       alpha: 0,
-      duration: 1000,
-      onComplete: () => floatText.destroy(),
+      scale: 1.5,
+      duration: 200,
+      onComplete: () => flash.destroy(),
     });
   }
 
-  private showGameOver(winner: 'player' | 'opponent'): void {
-    const resultText = this.gameOverContainer.list.find(
-      (obj) => obj.getData('type') === 'result'
-    ) as Phaser.GameObjects.Text;
+  private showDangerWarning(): void {
+    this.dangerWarning.setAlpha(1);
+    this.tweens.add({
+      targets: this.dangerWarning,
+      alpha: 0,
+      duration: 200,
+      yoyo: true,
+      repeat: 3,
+    });
+  }
 
-    if (resultText) {
-      resultText.setText(winner === 'player' ? '胜利!' : '失败...');
-      resultText.setColor(winner === 'player' ? '#00FF00' : '#FF0000');
+  private showAnnouncement(text: string): void {
+    const announcement = this.add.text(GAME_CONFIG.canvasWidth / 2, 400, text, {
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: '28px',
+      color: '#f4e8d0',
+      stroke: '#1a1a1a',
+      strokeThickness: 4,
+    });
+    announcement.setOrigin(0.5);
+    announcement.setDepth(500);
+
+    this.tweens.add({
+      targets: announcement,
+      y: 350,
+      alpha: 0,
+      duration: 1500,
+      ease: 'Quad.easeOut',
+      onComplete: () => announcement.destroy(),
+    });
+  }
+
+  private showResult(winner: 'player' | 'opponent' | 'draw'): void {
+    this.phase = 'result';
+
+    const title = this.resultScreen.list.find((obj) => obj.getData('type') === 'title') as Phaser.GameObjects.Text;
+
+    if (winner === 'player') {
+      title.setText('胜利！');
+      title.setColor('#4caf50');
+    } else if (winner === 'opponent') {
+      title.setText('失败');
+      title.setColor('#f44336');
+    } else {
+      title.setText('平局');
+      title.setColor('#ff9800');
     }
 
-    this.gameOverContainer.setVisible(true);
+    this.resultScreen.setVisible(true);
+  }
+
+  private onRecruitClick(): void {
+    if (this.phase !== 'playing') return;
+
+    const tile = this.engine.recruit(false);
+    if (!tile) {
+      this.showAnnouncement('馒头不足或槽位已满');
+    }
+  }
+
+  private onPointerDown(pointer: Phaser.Input.Pointer): void {
+    if (this.phase !== 'playing') return;
+
+    for (const [id, sprite] of this.tileSprites) {
+      const bounds = sprite.container.getBounds();
+      if (bounds.contains(pointer.x, pointer.y)) {
+        this.draggingTile = sprite;
+        this.dragOrigin = { x: sprite.container.x, y: sprite.container.y };
+        sprite.container.setDepth(200);
+        return;
+      }
+    }
+  }
+
+  private onPointerMove(pointer: Phaser.Input.Pointer): void {
+    if (!this.draggingTile || !this.dragOrigin) return;
+
+    this.draggingTile.container.setPosition(pointer.x, pointer.y);
+
+    this.dragLine.clear();
+    this.dragLine.lineStyle(2, 0x888888, 0.5);
+    this.dragLine.lineBetween(this.dragOrigin.x, this.dragOrigin.y, pointer.x, pointer.y);
+  }
+
+  private onPointerUp(pointer: Phaser.Input.Pointer): void {
+    if (!this.draggingTile || !this.dragOrigin) return;
+
+    this.dragLine.clear();
+
+    const state = this.engine.getState();
+    const draggedTileState = state.player.tiles.find((t) => t.id === this.draggingTile!.id);
+
+    let handled = false;
+
+    for (const [id, sprite] of this.tileSprites) {
+      if (id === this.draggingTile.id) continue;
+
+      const bounds = sprite.container.getBounds();
+      if (bounds.contains(pointer.x, pointer.y)) {
+        const targetTileState = state.player.tiles.find((t) => t.id === id);
+        if (
+          draggedTileState &&
+          targetTileState &&
+          draggedTileState.type === targetTileState.type &&
+          draggedTileState.char === targetTileState.char &&
+          draggedTileState.level === targetTileState.level &&
+          draggedTileState.level < MAX_TILE_LEVEL
+        ) {
+          this.engine.mergeTiles(draggedTileState.id, targetTileState.id, false);
+          handled = true;
+        }
+        break;
+      }
+    }
+
+    if (!handled) {
+      for (const cell of this.playerCells) {
+        if (cell.getData('isPath')) continue;
+
+        const bounds = cell.getBounds();
+        if (bounds.contains(pointer.x, pointer.y)) {
+          const pos = cell.getData('cellPos') as GridPosition;
+          const cellState = state.player.cells.find(
+            (c) => c.position.col === pos.col && c.position.row === pos.row
+          );
+
+          if (cellState && !cellState.tileId && !cellState.isPath && draggedTileState) {
+            const success = this.engine.placeTile(draggedTileState.id, pos, false);
+            if (success) {
+              const worldPos = this.engine.gridToWorld(pos, false);
+
+              if (this.draggingTile.slotIndex !== undefined) {
+                const slotIdx = state.player.holdingSlots.findIndex((s) => s === null);
+              }
+
+              this.tweens.add({
+                targets: this.draggingTile.container,
+                x: worldPos.x,
+                y: worldPos.y,
+                duration: GAME_CONFIG.animation.tileSnapDuration,
+                ease: 'Back.easeOut',
+              });
+
+              this.draggingTile.slotIndex = undefined;
+              handled = true;
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    if (!handled) {
+      this.tweens.add({
+        targets: this.draggingTile.container,
+        x: this.dragOrigin.x,
+        y: this.dragOrigin.y,
+        duration: 150,
+        ease: 'Quad.easeOut',
+      });
+    }
+
+    this.draggingTile.container.setDepth(100);
+    this.draggingTile = null;
+    this.dragOrigin = null;
   }
 
   update(_time: number, delta: number): void {
+    if (this.phase !== 'playing' || !this.engine) return;
+
     this.engine.update(delta);
     this.updateUI();
-    this.updateEnemySprites();
+    this.updateEnemySprites(false);
+    this.updateEnemySprites(true);
     this.updateProjectileSprites();
-    this.updateTileSprites();
+    this.updateOpponentTiles();
   }
 
   private updateUI(): void {
     const state = this.engine.getState();
-
-    this.bunsText.setText(`馒头: ${state.player.buns}`);
-    this.waveText.setText(`波次: ${state.currentWave}/13`);
-    this.recruitCostText.setText(`花费: ${state.player.recruitCost}`);
-
-    const playerHearts = '❤'.repeat(Math.max(0, state.player.adouLives));
-    const emptyHearts = '♡'.repeat(Math.max(0, GAME_CONFIG.adouLives - state.player.adouLives));
-    this.livesText.setText(`生命: ${playerHearts}${emptyHearts}`);
-
-    const oppHearts = '❤'.repeat(Math.max(0, state.opponent.adouLives));
-    const oppEmpty = '♡'.repeat(Math.max(0, GAME_CONFIG.adouLives - state.opponent.adouLives));
-    this.opponentLivesText.setText(`敌方: ${oppHearts}${oppEmpty}`);
-
-    const activeGenerals = state.player.activeGenerals
-      .filter((ag) => ag.isActive)
-      .map((ag) => {
-        const general = GENERALS.find((g) => g.id === ag.generalId);
-        return general?.name || '';
-      })
-      .join(' ');
-
-    this.activatedGeneralsText.setText(activeGenerals ? `激活: ${activeGenerals}` : '');
+    this.bunsText.setText(`${state.player.buns}`);
   }
 
-  private updateEnemySprites(): void {
+  private updateEnemySprites(isOpponent: boolean): void {
     const state = this.engine.getState();
+    const enemies = isOpponent ? state.opponentEnemies : state.enemies;
+    const sprites = isOpponent ? this.opponentEnemySprites : this.enemySprites;
 
-    const allEnemies = [...state.enemies, ...state.opponentEnemies];
-    const existingIds = new Set(allEnemies.map((e) => e.id));
+    const existingIds = new Set(enemies.map((e) => e.id));
 
-    this.enemySprites.forEach((sprite, id) => {
+    sprites.forEach((sprite, id) => {
       if (!existingIds.has(id)) {
         sprite.container.destroy();
-        this.enemySprites.delete(id);
+        sprites.delete(id);
       }
     });
 
-    allEnemies.forEach((enemy) => {
-      let sprite = this.enemySprites.get(enemy.id);
+    enemies.forEach((enemy) => {
+      let sprite = sprites.get(enemy.id);
 
       if (!sprite) {
-        sprite = this.createEnemySprite(enemy);
-        this.enemySprites.set(enemy.id, sprite);
+        sprite = this.createEnemySprite(enemy, isOpponent);
+        sprites.set(enemy.id, sprite);
       }
 
       sprite.container.setPosition(enemy.position.x, enemy.position.y);
 
-      const healthPercent = enemy.health / enemy.maxHealth;
-      sprite.healthBar.setScale(healthPercent, 1);
+      const healthPct = Math.max(0, enemy.health / enemy.maxHealth);
+      sprite.healthBar.setScale(healthPct, 1);
     });
   }
 
-  private createEnemySprite(enemy: EnemyState): EnemySprite {
-    const container = this.add.container(enemy.position.x, enemy.position.y);
-    const size = enemy.isBoss ? 40 : 30;
+  private createEnemySprite(enemy: EnemyState, isOpponent: boolean): EnemySprite {
+    const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : 1;
+    const size = (enemy.isBoss ? 36 : 24) * scale;
 
-    const bg = this.add.rectangle(
-      0,
-      0,
-      size,
-      size,
-      Phaser.Display.Color.HexStringToColor(enemy.color).color
-    );
-    bg.setStrokeStyle(2, 0x000000);
+    const container = this.add.container(enemy.position.x, enemy.position.y);
+    container.setDepth(50);
+
+    const bg = this.add.rectangle(0, 0, size, size, Phaser.Display.Color.HexStringToColor(enemy.color).color);
+    bg.setStrokeStyle(1, 0x000000);
 
     const text = this.add.text(0, 0, enemy.char, {
-      fontSize: enemy.isBoss ? '24px' : '18px',
-      fontFamily: 'Arial, sans-serif',
-      color: '#fff',
-      fontStyle: 'bold',
+      fontFamily: GAME_CONFIG.typography.brush,
+      fontSize: `${Math.floor((enemy.isBoss ? 20 : 14) * scale)}px`,
+      color: '#ffffff',
+      stroke: '#000000',
+      strokeThickness: 1,
     });
     text.setOrigin(0.5);
 
-    const healthBarBg = this.add.rectangle(0, -size / 2 - 8, size, 6, 0x333333);
-    const healthBar = this.add.rectangle(0, -size / 2 - 8, size, 6, 0x00ff00);
-    healthBar.setOrigin(0.5);
-    healthBarBg.setOrigin(0.5);
+    const healthBarBg = this.add.rectangle(0, -size / 2 - 4, size, 3, 0x333333);
+    const healthBar = this.add.rectangle(0, -size / 2 - 4, size, 3, 0x4caf50);
 
     container.add([bg, text, healthBarBg, healthBar]);
 
-    return {
-      container,
-      background: bg,
-      text,
-      healthBar,
-      healthBarBg,
-      id: enemy.id,
-    };
+    return { container, healthBar, id: enemy.id };
   }
 
   private updateProjectileSprites(): void {
     const state = this.engine.getState();
-
     const allProjectiles = [...state.projectiles, ...state.opponentProjectiles];
+
     const existingIds = new Set(allProjectiles.map((p) => p.id));
 
     this.projectileSprites.forEach((sprite, id) => {
       if (!existingIds.has(id)) {
-        sprite.circle.destroy();
+        sprite.destroy();
         this.projectileSprites.delete(id);
       }
     });
@@ -775,42 +1030,52 @@ export class GameScene extends Phaser.Scene {
       let sprite = this.projectileSprites.get(proj.id);
 
       if (!sprite) {
-        const circle = this.add.circle(proj.position.x, proj.position.y, 4, 0xffff00);
-        sprite = { circle, id: proj.id };
+        sprite = this.createProjectileSprite(proj.tileType);
         this.projectileSprites.set(proj.id, sprite);
       }
 
-      sprite.circle.setPosition(proj.position.x, proj.position.y);
+      sprite.setPosition(proj.position.x, proj.position.y);
     });
   }
 
-  private updateTileSprites(): void {
+  private createProjectileSprite(tileType?: string): Phaser.GameObjects.Container {
+    const container = this.add.container(0, 0);
+    container.setDepth(75);
+
+    let g = this.add.graphics();
+
+    if (tileType === 'bow') {
+      g.fillStyle(0x8b4513, 1);
+      g.fillTriangle(0, -6, -3, 6, 3, 6);
+    } else {
+      g.fillStyle(0x333333, 1);
+      g.fillCircle(0, 0, 4);
+    }
+
+    container.add(g);
+    return container;
+  }
+
+  private updateOpponentTiles(): void {
     const state = this.engine.getState();
 
-    state.player.tiles.forEach((tile) => {
-      const sprite = this.tileSprites.get(tile.id);
-      if (sprite) {
-        sprite.levelText.setText(`${tile.level}`);
+    state.opponent.tiles.forEach((tile) => {
+      if (!tile.position) return;
 
-        if (tile.isStunned) {
-          sprite.background.setFillStyle(0x555555);
-        } else {
-          let color = '#666';
-          if (tile.type === 'shovel') {
-            color = SHOVEL_CONFIG.color;
-          } else if (tile.type === 'general') {
-            color = '#9400D3';
-          } else {
-            color = TILE_CONFIGS[tile.type]?.color || '#666';
-          }
-          sprite.background.setFillStyle(
-            Phaser.Display.Color.HexStringToColor(color).color
-          );
-        }
+      let sprite = this.opponentTileSprites.get(tile.id);
+      if (!sprite) {
+        sprite = this.createTileSprite(tile, true);
+        const pos = this.engine.gridToWorld(tile.position, true);
+        sprite.container.setPosition(pos.x, pos.y);
+        this.opponentTileSprites.set(tile.id, sprite);
+      }
+    });
 
-        if (tile.generalId) {
-          sprite.background.setStrokeStyle(3, 0xffd700);
-        }
+    const placedIds = new Set(state.opponent.tiles.filter((t) => t.position).map((t) => t.id));
+    this.opponentTileSprites.forEach((sprite, id) => {
+      if (!placedIds.has(id)) {
+        sprite.container.destroy();
+        this.opponentTileSprites.delete(id);
       }
     });
   }

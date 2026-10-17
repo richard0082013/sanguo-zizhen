@@ -30,19 +30,19 @@ type EventCallback = (event: GameEvent) => void;
 
 export class BattleEngine {
   private state: GameState;
-  private rng: SeededRandom;
+  private playerRng: SeededRandom;
   private opponentRng: SeededRandom;
   private eventListeners: EventCallback[] = [];
-  private spawnQueue: { enemy: WaveEnemy; spawnTime: number; healthMultiplier: number }[] = [];
-  private opponentSpawnQueue: { enemy: WaveEnemy; spawnTime: number; healthMultiplier: number }[] = [];
+  private spawnQueue: { enemy: WaveEnemy; spawnTime: number; healthMultiplier: number; spawnIndex: number }[] = [];
+  private opponentSpawnQueue: { enemy: WaveEnemy; spawnTime: number; healthMultiplier: number; spawnIndex: number }[] = [];
   private generalChars: string[] = [];
   private nextTileId = 0;
   private nextEnemyId = 0;
   private nextProjectileId = 0;
 
   constructor(seed: number) {
-    this.rng = new SeededRandom(seed);
-    this.opponentRng = new SeededRandom(seed);
+    this.playerRng = new SeededRandom(seed);
+    this.opponentRng = new SeededRandom(seed + 1);
     this.generalChars = getAllGeneralChars();
     this.state = this.createInitialState(seed);
   }
@@ -68,18 +68,19 @@ export class BattleEngine {
 
   private createPlayerState(): PlayerState {
     const cells: CellState[] = [];
-    const { gridCols, gridRows, initialUnlockedCells } = GAME_CONFIG;
+    const { gridCols, gridRows, playerPathCells } = GAME_CONFIG;
 
-    let unlockedCount = 0;
+    const pathSet = new Set(playerPathCells.map((p) => `${p.col},${p.row}`));
+
     for (let row = 0; row < gridRows; row++) {
       for (let col = 0; col < gridCols; col++) {
-        const isUnlocked = unlockedCount < initialUnlockedCells;
+        const isPath = pathSet.has(`${col},${row}`);
         cells.push({
           position: { col, row },
-          isUnlocked,
+          isUnlocked: !isPath,
           tileId: null,
+          isPath,
         });
-        if (isUnlocked) unlockedCount++;
       }
     }
 
@@ -92,6 +93,7 @@ export class BattleEngine {
       tiles: [],
       activeGenerals: [],
       pendingTile: null,
+      holdingSlots: new Array(GAME_CONFIG.holdingSlots).fill(null),
     };
   }
 
@@ -116,39 +118,44 @@ export class BattleEngine {
 
     this.state.gameTime += deltaTime;
 
-    this.processSpawnQueues(deltaTime);
+    this.processSpawnQueues();
     this.updateEnemies(deltaTime, false);
     this.updateEnemies(deltaTime, true);
-    this.updateTiles(deltaTime, false);
-    this.updateTiles(deltaTime, true);
+    this.updateTiles(false);
+    this.updateTiles(true);
     this.updateProjectiles(deltaTime, false);
     this.updateProjectiles(deltaTime, true);
-    this.updateGeneralSkills(deltaTime, false);
-    this.updateGeneralSkills(deltaTime, true);
-    this.updateAI(deltaTime);
+    this.updateGeneralSkills(false);
+    this.updateGeneralSkills(true);
+    this.updateAI();
     this.checkWaveComplete();
     this.checkGameOver();
   }
 
-  private processSpawnQueues(_deltaTime: number): void {
+  private processSpawnQueues(): void {
     const now = this.state.gameTime;
+    const wave = WAVES[this.state.currentWave - 1];
+    if (!wave) return;
 
-    const spawnEnemy = (queue: typeof this.spawnQueue, isOpponent: boolean) => {
-      const toSpawn = queue.filter((s) => s.spawnTime <= now);
-      toSpawn.forEach((spawn) => {
-        for (let i = 0; i < spawn.enemy.count; i++) {
-          const delay = i * (WAVES[this.state.currentWave - 1]?.spawnInterval || 1000);
-          if (spawn.spawnTime + delay <= now) {
+    const processQueue = (
+      queue: typeof this.spawnQueue,
+      isOpponent: boolean
+    ) => {
+      queue.forEach((spawn) => {
+        if (spawn.spawnTime <= now && spawn.enemy.count > 0) {
+          const spawnDelay = spawn.spawnIndex * wave.spawnInterval;
+          if (spawn.spawnTime + spawnDelay <= now) {
             this.spawnEnemy(spawn.enemy.type, spawn.healthMultiplier, isOpponent);
             spawn.enemy.count--;
+            spawn.spawnIndex++;
           }
         }
       });
       return queue.filter((s) => s.enemy.count > 0);
     };
 
-    this.spawnQueue = spawnEnemy(this.spawnQueue, false);
-    this.opponentSpawnQueue = spawnEnemy(this.opponentSpawnQueue, true);
+    this.spawnQueue = processQueue(this.spawnQueue, false);
+    this.opponentSpawnQueue = processQueue(this.opponentSpawnQueue, true);
   }
 
   private spawnEnemy(
@@ -157,7 +164,9 @@ export class BattleEngine {
     isOpponent: boolean
   ): void {
     const config = ENEMIES[type];
-    const startPos = GAME_CONFIG.pathPoints[0];
+    const pathCells = isOpponent ? GAME_CONFIG.opponentPathCells : GAME_CONFIG.playerPathCells;
+    const startCell = pathCells[0];
+    const startPos = this.cellToWorld(startCell, isOpponent);
 
     const enemy: EnemyState = {
       id: `enemy_${this.nextEnemyId++}`,
@@ -194,7 +203,9 @@ export class BattleEngine {
     const boss = BOSSES.find((b) => b.id === bossId);
     if (!boss) return;
 
-    const startPos = GAME_CONFIG.pathPoints[0];
+    const pathCells = isOpponent ? GAME_CONFIG.opponentPathCells : GAME_CONFIG.playerPathCells;
+    const startCell = pathCells[0];
+    const startPos = this.cellToWorld(startCell, isOpponent);
 
     const enemy: EnemyState = {
       id: `enemy_${this.nextEnemyId++}`,
@@ -226,11 +237,14 @@ export class BattleEngine {
     } else {
       this.state.enemies.push(enemy);
     }
+
+    this.emit({ type: 'BOSS_SPAWN', bossId, isOpponent });
   }
 
   private updateEnemies(deltaTime: number, isOpponent: boolean): void {
     const enemies = isOpponent ? this.state.opponentEnemies : this.state.enemies;
     const player = isOpponent ? this.state.opponent : this.state.player;
+    const pathCells = isOpponent ? GAME_CONFIG.opponentPathCells : GAME_CONFIG.playerPathCells;
     const now = this.state.gameTime;
 
     const toRemove: string[] = [];
@@ -250,7 +264,13 @@ export class BattleEngine {
 
       if (enemy.health <= 0) {
         player.buns += enemy.reward;
-        this.emit({ type: 'ENEMY_KILLED', enemyId: enemy.id, reward: enemy.reward, isOpponent });
+        this.emit({
+          type: 'ENEMY_KILLED',
+          enemyId: enemy.id,
+          reward: enemy.reward,
+          isOpponent,
+          position: { ...enemy.position },
+        });
         toRemove.push(enemy.id);
         return;
       }
@@ -258,9 +278,9 @@ export class BattleEngine {
       const speedMultiplier = enemy.isSlowed ? 0.5 : 1;
       const moveDistance = enemy.speed * speedMultiplier * (deltaTime / 1000);
 
-      this.moveEnemyAlongPath(enemy, moveDistance);
+      this.moveEnemyAlongPath(enemy, moveDistance, pathCells, isOpponent);
 
-      if (enemy.pathIndex >= GAME_CONFIG.pathPoints.length - 1) {
+      if (enemy.pathIndex >= pathCells.length - 1 && enemy.pathProgress > 0.9) {
         player.adouLives -= enemy.damage;
         this.emit({
           type: 'ENEMY_REACHED_END',
@@ -283,18 +303,23 @@ export class BattleEngine {
     }
   }
 
-  private moveEnemyAlongPath(enemy: EnemyState, distance: number): void {
-    const path = GAME_CONFIG.pathPoints;
+  private moveEnemyAlongPath(
+    enemy: EnemyState,
+    distance: number,
+    pathCells: GridPosition[],
+    isOpponent: boolean
+  ): void {
+    const cellSize = GAME_CONFIG.cellSize * (isOpponent ? GAME_CONFIG.opponentBoardScale : 1);
 
-    while (distance > 0 && enemy.pathIndex < path.length - 1) {
-      const current = path[enemy.pathIndex];
-      const next = path[enemy.pathIndex + 1];
+    while (distance > 0 && enemy.pathIndex < pathCells.length - 1) {
+      const current = this.cellToWorld(pathCells[enemy.pathIndex], isOpponent);
+      const next = this.cellToWorld(pathCells[enemy.pathIndex + 1], isOpponent);
 
       const dx = next.x - current.x;
       const dy = next.y - current.y;
-      const segmentLength = Math.sqrt(dx * dx + dy * dy);
+      const segmentLength = Math.sqrt(dx * dx + dy * dy) || cellSize;
 
-      const remainingInSegment = segmentLength - enemy.pathProgress;
+      const remainingInSegment = segmentLength * (1 - enemy.pathProgress);
 
       if (distance >= remainingInSegment) {
         enemy.pathIndex++;
@@ -302,8 +327,8 @@ export class BattleEngine {
         distance -= remainingInSegment;
         enemy.position = { ...next };
       } else {
-        enemy.pathProgress += distance;
-        const t = enemy.pathProgress / segmentLength;
+        enemy.pathProgress += distance / segmentLength;
+        const t = enemy.pathProgress;
         enemy.position.x = current.x + dx * t;
         enemy.position.y = current.y + dy * t;
         distance = 0;
@@ -311,7 +336,7 @@ export class BattleEngine {
     }
   }
 
-  private updateBossAbility(enemy: EnemyState, player: PlayerState, _isOpponent: boolean): void {
+  private updateBossAbility(enemy: EnemyState, player: PlayerState, isOpponent: boolean): void {
     const boss = BOSSES.find((b) => b.id === enemy.bossId);
     if (!boss || !boss.ability.cooldown) return;
 
@@ -323,17 +348,23 @@ export class BattleEngine {
     if (boss.ability.type === 'stun') {
       player.tiles.forEach((tile) => {
         if (!tile.position) return;
-        const tilePos = this.gridToWorld(tile.position);
+        const tilePos = this.gridToWorld(tile.position, isOpponent);
         const dist = this.distance(tilePos, enemy.position);
         if (dist <= (boss.ability.radius || 100)) {
           tile.isStunned = true;
           tile.stunnedUntil = now + (boss.ability.duration || 1500);
+          this.emit({
+            type: 'TILE_STUNNED',
+            tileId: tile.id,
+            duration: boss.ability.duration || 1500,
+            isOpponent,
+          });
         }
       });
     }
   }
 
-  private updateTiles(_deltaTime: number, isOpponent: boolean): void {
+  private updateTiles(isOpponent: boolean): void {
     const player = isOpponent ? this.state.opponent : this.state.player;
     const enemies = isOpponent ? this.state.opponentEnemies : this.state.enemies;
     const projectiles = isOpponent ? this.state.opponentProjectiles : this.state.projectiles;
@@ -347,7 +378,6 @@ export class BattleEngine {
       }
 
       if (tile.isStunned) return;
-
       if (tile.type === 'shovel' || tile.type === 'general') return;
 
       const config = TILE_CONFIGS[tile.type];
@@ -355,17 +385,32 @@ export class BattleEngine {
 
       if (now - tile.lastAttackTime < attackSpeed) return;
 
-      const tilePos = this.gridToWorld(tile.position);
-      const target = this.findTarget(tilePos, config.attackRange * (1 + (tile.level - 1) * 0.2), enemies);
+      const tilePos = this.gridToWorld(tile.position, isOpponent);
+      const range = config.attackRange * (1 + (tile.level - 1) * 0.15);
+      const target = this.findTarget(tilePos, range, enemies);
 
       if (!target) return;
 
       tile.lastAttackTime = now;
 
       const damage = Math.floor(
-        getTileDamage(tile.type, tile.level) * (1 + tile.damageBuff) *
+        getTileDamage(tile.type, tile.level) *
+          (1 + tile.damageBuff) *
           (1 - (config.isRanged ? target.rangedResist : target.meleeResist))
       );
+
+      this.emit({
+        type: 'TILE_ATTACK',
+        tileId: tile.id,
+        targetId: target.id,
+        damage,
+        isRanged: config.isRanged,
+        isOpponent,
+        fromPos: { ...tilePos },
+        toPos: { ...target.position },
+        tileType: tile.type,
+        level: tile.level,
+      });
 
       if (config.isRanged) {
         const projectile: ProjectileState = {
@@ -376,7 +421,8 @@ export class BattleEngine {
           targetPosition: { ...target.position },
           damage,
           isRanged: true,
-          speed: 300,
+          speed: GAME_CONFIG.animation.projectileSpeed,
+          tileType: tile.type,
         };
         projectiles.push(projectile);
       } else {
@@ -387,16 +433,13 @@ export class BattleEngine {
           enemyId: target.id,
           damage,
           isOpponent,
+          position: { ...target.position },
         });
       }
     });
   }
 
-  private findTarget(
-    position: Position,
-    range: number,
-    enemies: EnemyState[]
-  ): EnemyState | null {
+  private findTarget(position: Position, range: number, enemies: EnemyState[]): EnemyState | null {
     let closest: EnemyState | null = null;
     let closestDist = Infinity;
 
@@ -430,7 +473,7 @@ export class BattleEngine {
       const dy = proj.targetPosition.y - proj.position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      if (dist < 10) {
+      if (dist < 8) {
         target.health -= proj.damage;
         this.emit({
           type: 'PROJECTILE_HIT',
@@ -438,6 +481,7 @@ export class BattleEngine {
           enemyId: target.id,
           damage: proj.damage,
           isOpponent,
+          position: { ...target.position },
         });
         toRemove.push(proj.id);
         return;
@@ -455,7 +499,7 @@ export class BattleEngine {
     }
   }
 
-  private updateGeneralSkills(_deltaTime: number, isOpponent: boolean): void {
+  private updateGeneralSkills(isOpponent: boolean): void {
     const player = isOpponent ? this.state.opponent : this.state.player;
     const enemies = isOpponent ? this.state.opponentEnemies : this.state.enemies;
     const now = this.state.gameTime;
@@ -479,12 +523,12 @@ export class BattleEngine {
     activeGeneral: ActiveGeneralState,
     player: PlayerState,
     enemies: EnemyState[],
-    _isOpponent: boolean
+    isOpponent: boolean
   ): void {
     const firstTile = player.tiles.find((t) => t.id === activeGeneral.tileIds[0]);
     if (!firstTile?.position) return;
 
-    const tilePos = this.gridToWorld(firstTile.position);
+    const tilePos = this.gridToWorld(firstTile.position, isOpponent);
     const effect = general.skillEffect;
 
     switch (effect.type) {
@@ -524,13 +568,10 @@ export class BattleEngine {
       case 'buff':
         player.tiles.forEach((tile) => {
           if (!tile.position) return;
-          const pos = this.gridToWorld(tile.position);
+          const pos = this.gridToWorld(tile.position, isOpponent);
           if (this.distance(pos, tilePos) <= (effect.radius || 80)) {
             if (effect.buffType === 'attackSpeed') {
               tile.attackSpeedBuff = effect.buffValue || 0;
-              setTimeout(() => {
-                tile.attackSpeedBuff = 0;
-              }, effect.duration || 5000);
             }
           }
         });
@@ -554,39 +595,37 @@ export class BattleEngine {
           }
         });
         break;
-
-      case 'economy':
-        break;
     }
   }
 
-  private updateAI(_deltaTime: number): void {
+  private updateAI(): void {
     const opponent = this.state.opponent;
 
-    if (
-      this.opponentRng.next() < 0.02 &&
-      opponent.buns >= opponent.recruitCost
-    ) {
+    if (this.opponentRng.next() < 0.04 && opponent.buns >= opponent.recruitCost) {
       this.recruit(true);
     }
 
-    if (opponent.pendingTile) {
-      const emptyCells = opponent.cells.filter((c) => c.isUnlocked && !c.tileId);
-      if (emptyCells.length > 0) {
-        const cell = this.opponentRng.pick(emptyCells);
-        if (opponent.pendingTile.type === 'shovel') {
-          const lockedCells = opponent.cells.filter((c) => !c.isUnlocked);
-          if (lockedCells.length > 0) {
-            this.unlockCell(lockedCells[0].position, true);
+    const pendingSlotIndex = opponent.holdingSlots.findIndex((s) => s !== null);
+    if (pendingSlotIndex >= 0) {
+      const tile = opponent.holdingSlots[pendingSlotIndex];
+      if (tile) {
+        const emptyCells = opponent.cells.filter((c) => c.isUnlocked && !c.tileId && !c.isPath);
+        if (emptyCells.length > 0) {
+          if (tile.type === 'shovel') {
+            opponent.holdingSlots[pendingSlotIndex] = null;
+            opponent.tiles = opponent.tiles.filter((t) => t.id !== tile.id);
+          } else {
+            const cell = this.opponentRng.pick(emptyCells);
+            const success = this.placeTile(tile.id, cell.position, true);
+            if (success) {
+              opponent.holdingSlots[pendingSlotIndex] = null;
+            }
           }
-          opponent.pendingTile = null;
-        } else {
-          this.placeTile(opponent.pendingTile.id, cell.position, true);
         }
       }
     }
 
-    if (this.opponentRng.next() < 0.01) {
+    if (this.opponentRng.next() < 0.02) {
       const tilesOnBoard = opponent.tiles.filter((t) => t.position !== null);
       const mergeable = this.findMergeableTiles(tilesOnBoard);
       if (mergeable) {
@@ -595,9 +634,7 @@ export class BattleEngine {
     }
   }
 
-  private findMergeableTiles(
-    tiles: TileState[]
-  ): { tile1: TileState; tile2: TileState } | null {
+  private findMergeableTiles(tiles: TileState[]): { tile1: TileState; tile2: TileState } | null {
     for (let i = 0; i < tiles.length; i++) {
       for (let j = i + 1; j < tiles.length; j++) {
         if (
@@ -616,13 +653,9 @@ export class BattleEngine {
   private checkWaveComplete(): void {
     if (!this.state.isWaveActive) return;
 
-    const playerDone =
-      this.state.enemies.length === 0 && this.spawnQueue.length === 0;
+    const playerDone = this.state.enemies.length === 0 && this.spawnQueue.length === 0;
     const opponentDone =
       this.state.opponentEnemies.length === 0 && this.opponentSpawnQueue.length === 0;
-
-    const currentWaveConfig = WAVES[this.state.currentWave - 1];
-    if (!currentWaveConfig) return;
 
     const noMoreSpawns =
       this.spawnQueue.every((s) => s.enemy.count === 0) &&
@@ -632,24 +665,20 @@ export class BattleEngine {
       this.state.isWaveActive = false;
       this.emit({ type: 'WAVE_COMPLETED', waveNumber: this.state.currentWave });
 
-      const caocaoPlayer = this.state.player.activeGenerals.find(
-        (ag) => ag.generalId === 'caocao' && ag.isActive
-      );
-      if (caocaoPlayer) {
-        this.state.player.buns += 5;
-      }
-
-      const caocaoOpponent = this.state.opponent.activeGenerals.find(
-        (ag) => ag.generalId === 'caocao' && ag.isActive
-      );
-      if (caocaoOpponent) {
-        this.state.opponent.buns += 5;
+      if (this.state.currentWave < WAVES.length) {
+        setTimeout(() => {
+          this.startNextWave();
+        }, GAME_CONFIG.betweenWaveDelay);
       }
     }
   }
 
   private checkGameOver(): void {
-    if (this.state.player.adouLives <= 0) {
+    if (this.state.player.adouLives <= 0 && this.state.opponent.adouLives <= 0) {
+      this.state.isGameOver = true;
+      this.state.winner = 'draw';
+      this.emit({ type: 'GAME_OVER', winner: 'draw' });
+    } else if (this.state.player.adouLives <= 0) {
       this.state.isGameOver = true;
       this.state.winner = 'opponent';
       this.emit({ type: 'GAME_OVER', winner: 'opponent' });
@@ -657,14 +686,17 @@ export class BattleEngine {
       this.state.isGameOver = true;
       this.state.winner = 'player';
       this.emit({ type: 'GAME_OVER', winner: 'player' });
-    } else if (
-      this.state.currentWave >= WAVES.length &&
-      !this.state.isWaveActive
-    ) {
+    } else if (this.state.currentWave >= WAVES.length && !this.state.isWaveActive) {
       const playerLives = this.state.player.adouLives;
       const opponentLives = this.state.opponent.adouLives;
       this.state.isGameOver = true;
-      this.state.winner = playerLives > opponentLives ? 'player' : 'opponent';
+      if (playerLives > opponentLives) {
+        this.state.winner = 'player';
+      } else if (opponentLives > playerLives) {
+        this.state.winner = 'opponent';
+      } else {
+        this.state.winner = 'draw';
+      }
       this.emit({ type: 'GAME_OVER', winner: this.state.winner });
     }
   }
@@ -689,11 +721,13 @@ export class BattleEngine {
           enemy: { ...enemy },
           spawnTime: this.state.gameTime + enemy.delay,
           healthMultiplier: enemy.healthMultiplier || 1,
+          spawnIndex: 0,
         });
         this.opponentSpawnQueue.push({
           enemy: { ...enemy },
           spawnTime: this.state.gameTime + enemy.delay,
           healthMultiplier: enemy.healthMultiplier || 1,
+          spawnIndex: 0,
         });
       });
     }
@@ -703,9 +737,12 @@ export class BattleEngine {
 
   recruit(isOpponent: boolean): TileState | null {
     const player = isOpponent ? this.state.opponent : this.state.player;
-    const rng = isOpponent ? this.opponentRng : this.rng;
+    const rng = isOpponent ? this.opponentRng : this.playerRng;
 
     if (player.buns < player.recruitCost) return null;
+
+    const emptySlotIndex = player.holdingSlots.findIndex((s) => s === null);
+    if (emptySlotIndex === -1) return null;
 
     player.buns -= player.recruitCost;
     player.recruitCount++;
@@ -751,9 +788,9 @@ export class BattleEngine {
     };
 
     player.tiles.push(tile);
-    player.pendingTile = tile;
+    player.holdingSlots[emptySlotIndex] = tile;
 
-    this.emit({ type: 'RECRUIT', tileType: selectedType, char, isOpponent });
+    this.emit({ type: 'RECRUIT', tileType: selectedType, char, isOpponent, slotIndex: emptySlotIndex });
 
     return tile;
   }
@@ -767,7 +804,7 @@ export class BattleEngine {
     const cell = player.cells.find(
       (c) => c.position.col === position.col && c.position.row === position.row
     );
-    if (!cell || !cell.isUnlocked || cell.tileId !== null) return false;
+    if (!cell || !cell.isUnlocked || cell.tileId !== null || cell.isPath) return false;
 
     if (tile.type === 'shovel') {
       return false;
@@ -776,42 +813,14 @@ export class BattleEngine {
     tile.position = position;
     cell.tileId = tileId;
 
-    if (player.pendingTile?.id === tileId) {
-      player.pendingTile = null;
+    const slotIndex = player.holdingSlots.findIndex((s) => s?.id === tileId);
+    if (slotIndex >= 0) {
+      player.holdingSlots[slotIndex] = null;
     }
 
     this.emit({ type: 'TILE_PLACED', tileId, position, isOpponent });
 
     this.checkGeneralActivation(player, isOpponent);
-
-    return true;
-  }
-
-  unlockCell(position: GridPosition, isOpponent: boolean): boolean {
-    const player = isOpponent ? this.state.opponent : this.state.player;
-
-    const cell = player.cells.find(
-      (c) => c.position.col === position.col && c.position.row === position.row
-    );
-    if (!cell || cell.isUnlocked) return false;
-
-    const hasShovel = player.tiles.some(
-      (t) => t.type === 'shovel' && t.position === null
-    );
-    if (!hasShovel) return false;
-
-    const shovelTile = player.tiles.find(
-      (t) => t.type === 'shovel' && t.position === null
-    );
-    if (shovelTile) {
-      player.tiles = player.tiles.filter((t) => t.id !== shovelTile.id);
-      if (player.pendingTile?.id === shovelTile.id) {
-        player.pendingTile = null;
-      }
-    }
-
-    cell.isUnlocked = true;
-    this.emit({ type: 'CELL_UNLOCKED', position, isOpponent });
 
     return true;
   }
@@ -844,25 +853,26 @@ export class BattleEngine {
 
     if (tile1.position) {
       const cell = player.cells.find(
-        (c) =>
-          c.position.col === tile1.position!.col &&
-          c.position.row === tile1.position!.row
+        (c) => c.position.col === tile1.position!.col && c.position.row === tile1.position!.row
       );
       if (cell) cell.tileId = newTile.id;
     }
 
     if (tile2.position) {
       const cell = player.cells.find(
-        (c) =>
-          c.position.col === tile2.position!.col &&
-          c.position.row === tile2.position!.row
+        (c) => c.position.col === tile2.position!.col && c.position.row === tile2.position!.row
       );
       if (cell) cell.tileId = null;
     }
 
-    player.tiles = player.tiles.filter(
-      (t) => t.id !== tile1Id && t.id !== tile2Id
-    );
+    [tile1Id, tile2Id].forEach((id) => {
+      const slotIndex = player.holdingSlots.findIndex((s) => s?.id === id);
+      if (slotIndex >= 0) {
+        player.holdingSlots[slotIndex] = null;
+      }
+    });
+
+    player.tiles = player.tiles.filter((t) => t.id !== tile1Id && t.id !== tile2Id);
     player.tiles.push(newTile);
 
     this.emit({
@@ -884,9 +894,7 @@ export class BattleEngine {
     );
 
     for (const general of GENERALS) {
-      const existingActivation = player.activeGenerals.find(
-        (ag) => ag.generalId === general.id
-      );
+      const existingActivation = player.activeGenerals.find((ag) => ag.generalId === general.id);
       if (existingActivation?.isActive) continue;
 
       const matchingTiles: TileState[] = [];
@@ -897,9 +905,7 @@ export class BattleEngine {
           (t) =>
             t.char === char &&
             !matchingTiles.includes(t) &&
-            !player.activeGenerals.some(
-              (ag) => ag.isActive && ag.tileIds.includes(t.id)
-            )
+            !player.activeGenerals.some((ag) => ag.isActive && ag.tileIds.includes(t.id))
         );
         if (tile) {
           matchingTiles.push(tile);
@@ -930,11 +936,20 @@ export class BattleEngine {
     }
   }
 
-  private gridToWorld(pos: GridPosition): Position {
+  private cellToWorld(cell: GridPosition, isOpponent: boolean): Position {
+    const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : 1;
+    const startX = isOpponent ? GAME_CONFIG.opponentGridStartX : GAME_CONFIG.playerGridStartX;
+    const startY = isOpponent ? GAME_CONFIG.opponentGridStartY : GAME_CONFIG.playerGridStartY;
+    const cellSize = GAME_CONFIG.cellSize * scale;
+
     return {
-      x: GAME_CONFIG.gridStartX + pos.col * GAME_CONFIG.cellSize + GAME_CONFIG.cellSize / 2,
-      y: GAME_CONFIG.gridStartY + pos.row * GAME_CONFIG.cellSize + GAME_CONFIG.cellSize / 2,
+      x: startX + cell.col * cellSize + cellSize / 2,
+      y: startY + cell.row * cellSize + cellSize / 2,
     };
+  }
+
+  gridToWorld(pos: GridPosition, isOpponent: boolean): Position {
+    return this.cellToWorld(pos, isOpponent);
   }
 
   private distance(a: Position, b: Position): number {
@@ -945,7 +960,7 @@ export class BattleEngine {
 
   canRecruit(isOpponent: boolean): boolean {
     const player = isOpponent ? this.state.opponent : this.state.player;
-    return player.buns >= player.recruitCost;
+    return player.buns >= player.recruitCost && player.holdingSlots.some((s) => s === null);
   }
 
   getRecruitCost(isOpponent: boolean): number {
