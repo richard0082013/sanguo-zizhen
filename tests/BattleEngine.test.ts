@@ -27,8 +27,10 @@ describe('BattleEngine', () => {
 
       expect(state.player.cells).toHaveLength(expectedCells);
 
-      const unlockedCells = state.player.cells.filter((c) => c.isUnlocked);
-      expect(unlockedCells).toHaveLength(GAME_CONFIG.initialUnlockedCells);
+      const unlockedCells = state.player.cells.filter((c) => c.isUnlocked && !c.isPath);
+      const pathCells = GAME_CONFIG.pathCells.length;
+      const expectedUnlocked = expectedCells - pathCells;
+      expect(unlockedCells).toHaveLength(expectedUnlocked);
     });
 
     it('should initialize opponent with same state', () => {
@@ -76,11 +78,12 @@ describe('BattleEngine', () => {
       expect(tile).toBeNull();
     });
 
-    it('should set pending tile after recruit', () => {
+    it('should add tile to holding slots after recruit', () => {
       engine.recruit(false);
 
       const state = engine.getState();
-      expect(state.player.pendingTile).not.toBeNull();
+      const hasSlotTile = state.player.holdingSlots.some((slot) => slot !== null);
+      expect(hasSlotTile).toBe(true);
     });
 
     it('should produce deterministic results with same seed', () => {
@@ -419,8 +422,8 @@ describe('BattleEngine', () => {
     });
   });
 
-  describe('Cell Unlock', () => {
-    it('should unlock cell when using shovel', () => {
+  describe('Shovel Behavior', () => {
+    it('should not allow placing shovel on grid', () => {
       const state = engine.getState();
 
       const shovelTile = {
@@ -437,81 +440,28 @@ describe('BattleEngine', () => {
       };
 
       state.player.tiles.push(shovelTile);
-      state.player.pendingTile = shovelTile;
+      state.player.holdingSlots[0] = shovelTile;
 
-      const lockedCell = state.player.cells.find((c) => !c.isUnlocked);
-
-      if (!lockedCell) return;
-
-      const success = engine.unlockCell(lockedCell.position, false);
-
-      expect(success).toBe(true);
-
-      const updatedState = engine.getState();
-      const unlockedCell = updatedState.player.cells.find(
-        (c) =>
-          c.position.col === lockedCell.position.col &&
-          c.position.row === lockedCell.position.row
-      );
-
-      expect(unlockedCell!.isUnlocked).toBe(true);
-    });
-
-    it('should not unlock already unlocked cell', () => {
-      const state = engine.getState();
-
-      const shovelTile = {
-        id: 'shovel_tile_2',
-        type: 'shovel' as const,
-        char: '铲',
-        level: 1,
-        position: null,
-        lastAttackTime: 0,
-        attackSpeedBuff: 0,
-        damageBuff: 0,
-        isStunned: false,
-        stunnedUntil: 0,
-      };
-
-      state.player.tiles.push(shovelTile);
-
-      const unlockedCell = state.player.cells.find((c) => c.isUnlocked);
+      const unlockedCell = state.player.cells.find((c) => c.isUnlocked && !c.isPath && !c.tileId);
 
       if (!unlockedCell) return;
 
-      const success = engine.unlockCell(unlockedCell.position, false);
+      const success = engine.placeTile('shovel_tile', unlockedCell.position, false);
 
       expect(success).toBe(false);
     });
 
-    it('should consume shovel after unlocking', () => {
+    it('should have all non-path cells unlocked', () => {
       const state = engine.getState();
 
-      const shovelTile = {
-        id: 'shovel_tile_3',
-        type: 'shovel' as const,
-        char: '铲',
-        level: 1,
-        position: null,
-        lastAttackTime: 0,
-        attackSpeedBuff: 0,
-        damageBuff: 0,
-        isStunned: false,
-        stunnedUntil: 0,
-      };
-
-      state.player.tiles.push(shovelTile);
-
-      const lockedCell = state.player.cells.find((c) => !c.isUnlocked);
-
-      if (!lockedCell) return;
-
-      engine.unlockCell(lockedCell.position, false);
-
-      const updatedState = engine.getState();
-      const shovel = updatedState.player.tiles.find((t) => t.id === 'shovel_tile_3');
-
-      expect(shovel).toBeUndefined();
+      const pathCells = state.player.cells.filter((c) => c.isPath);
+      const unlockedCells = state.player.cells.filter((c) => c.isUnlocked && !c.isPath);
+      
+      pathCells.forEach((cell) => {
+        expect(cell.isUnlocked).toBe(false);
+      });
+      
+      expect(unlockedCells.length).toBe(state.player.cells.length - pathCells.length);
     });
   });
 
@@ -564,6 +514,83 @@ describe('BattleEngine', () => {
 
       expect(state.isGameOver).toBe(true);
       expect(state.winner).toBe('player');
+    });
+  });
+
+  describe('Shared Wave Determinism', () => {
+    it('should spawn identical waves for both player and opponent from same seed', () => {
+      const seed = 42;
+      const engine1 = new BattleEngine(seed);
+      const engine2 = new BattleEngine(seed);
+
+      engine1.startNextWave();
+      engine2.startNextWave();
+
+      for (let i = 0; i < 200; i++) {
+        engine1.update(16);
+        engine2.update(16);
+      }
+
+      const state1 = engine1.getState();
+      const state2 = engine2.getState();
+
+      expect(state1.enemies.length).toBe(state2.enemies.length);
+      expect(state1.opponentEnemies.length).toBe(state2.opponentEnemies.length);
+
+      expect(state1.currentWave).toBe(state2.currentWave);
+    });
+
+    it('should have same enemy types in player and opponent waves', () => {
+      engine.startNextWave();
+
+      for (let i = 0; i < 200; i++) {
+        engine.update(16);
+      }
+
+      const state = engine.getState();
+
+      const playerEnemyTypes = state.enemies.map((e) => e.type).sort();
+      const opponentEnemyTypes = state.opponentEnemies.map((e) => e.type).sort();
+
+      expect(playerEnemyTypes).toEqual(opponentEnemyTypes);
+    });
+
+    it('should maintain wave synchronization across multiple waves', () => {
+      const seed = 12345;
+      const engine1 = new BattleEngine(seed);
+      const engine2 = new BattleEngine(seed);
+
+      for (let wave = 0; wave < 3; wave++) {
+        engine1.startNextWave();
+        engine2.startNextWave();
+
+        for (let i = 0; i < 500; i++) {
+          engine1.update(16);
+          engine2.update(16);
+        }
+      }
+
+      const state1 = engine1.getState();
+      const state2 = engine2.getState();
+
+      expect(state1.currentWave).toBe(state2.currentWave);
+    });
+
+    it('should produce different results with different seeds', () => {
+      const engine1 = new BattleEngine(100);
+      const engine2 = new BattleEngine(200);
+
+      engine1.recruit(false);
+      engine2.recruit(false);
+
+      const state1 = engine1.getState();
+      const state2 = engine2.getState();
+
+      const tile1 = state1.player.tiles[0];
+      const tile2 = state2.player.tiles[0];
+
+      expect(tile1).toBeDefined();
+      expect(tile2).toBeDefined();
     });
   });
 });

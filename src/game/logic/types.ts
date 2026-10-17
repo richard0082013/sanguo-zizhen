@@ -59,6 +59,7 @@ export interface ProjectileState {
   damage: number;
   isRanged: boolean;
   speed: number;
+  tileType?: TileType;
 }
 
 export interface ActiveGeneralState {
@@ -72,6 +73,7 @@ export interface CellState {
   position: GridPosition;
   isUnlocked: boolean;
   tileId: string | null;
+  isPath?: boolean;
 }
 
 export interface PlayerState {
@@ -83,6 +85,7 @@ export interface PlayerState {
   tiles: TileState[];
   activeGenerals: ActiveGeneralState[];
   pendingTile: TileState | null;
+  holdingSlots: (TileState | null)[];
 }
 
 export interface GameState {
@@ -97,13 +100,13 @@ export interface GameState {
   waveStartTime: number;
   gameTime: number;
   isGameOver: boolean;
-  winner: 'player' | 'opponent' | null;
+  winner: 'player' | 'opponent' | 'draw' | null;
   seed: number;
   isPaused: boolean;
 }
 
 export type GameEvent =
-  | { type: 'ENEMY_KILLED'; enemyId: string; reward: number; isOpponent: boolean }
+  | { type: 'ENEMY_KILLED'; enemyId: string; reward: number; isOpponent: boolean; position: Position }
   | { type: 'ENEMY_REACHED_END'; enemyId: string; damage: number; isOpponent: boolean }
   | { type: 'TILE_PLACED'; tileId: string; position: GridPosition; isOpponent: boolean }
   | { type: 'TILES_MERGED'; tile1Id: string; tile2Id: string; newTileId: string; isOpponent: boolean }
@@ -112,6 +115,10 @@ export type GameEvent =
   | { type: 'CELL_UNLOCKED'; position: GridPosition; isOpponent: boolean }
   | { type: 'WAVE_STARTED'; waveNumber: number }
   | { type: 'WAVE_COMPLETED'; waveNumber: number }
-  | { type: 'GAME_OVER'; winner: 'player' | 'opponent' }
-  | { type: 'RECRUIT'; tileType: TileType; char: string; isOpponent: boolean }
-  | { type: 'PROJECTILE_HIT'; projectileId: string; enemyId: string; damage: number; isOpponent: boolean };
+  | { type: 'GAME_OVER'; winner: 'player' | 'opponent' | 'draw' }
+  | { type: 'RECRUIT'; tileType: TileType; char: string; isOpponent: boolean; slotIndex: number }
+  | { type: 'PROJECTILE_HIT'; projectileId: string; enemyId: string; damage: number; isOpponent: boolean; position: Position }
+  | { type: 'TILE_ATTACK'; tileId: string; targetId: string; damage: number; isRanged: boolean; isOpponent: boolean; fromPos: Position; toPos: Position; tileType: TileType; level: number }
+  | { type: 'TILE_STUNNED'; tileId: string; duration: number; isOpponent: boolean }
+  | { type: 'BOSS_SPAWN'; bossId: string; isOpponent: boolean }
+  | { type: 'DANGER_WARNING'; isOpponent: boolean };

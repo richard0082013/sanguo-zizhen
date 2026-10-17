@@ -28,11 +28,11 @@ export const ENEMIES: Record<EnemyType, EnemyConfig> = {
     name: '步兵',
     char: '兵',
     health: 100,
-    speed: 40,
+    speed: 64,
     damage: 1,
     rangedResist: 0,
     meleeResist: 0,
-    reward: 5,
+    reward: 2,
     color: '#8B4513',
   },
   cavalry: {
@@ -44,7 +44,7 @@ export const ENEMIES: Record<EnemyType, EnemyConfig> = {
     damage: 1,
     rangedResist: 0,
     meleeResist: 0,
-    reward: 6,
+    reward: 2,
     color: '#4169E1',
   },
   shield: {
@@ -56,7 +56,7 @@ export const ENEMIES: Record<EnemyType, EnemyConfig> = {
     damage: 1,
     rangedResist: 0.5,
     meleeResist: 0,
-    reward: 8,
+    reward: 2,
     color: '#708090',
   },
   mage: {
@@ -68,7 +68,7 @@ export const ENEMIES: Record<EnemyType, EnemyConfig> = {
     damage: 1,
     rangedResist: 0,
     meleeResist: 0.3,
-    reward: 10,
+    reward: 3,
     color: '#9932CC',
     specialAbility: {
       type: 'heal',
@@ -86,7 +86,7 @@ export const ENEMIES: Record<EnemyType, EnemyConfig> = {
     damage: 2,
     rangedResist: 0.2,
     meleeResist: 0.2,
-    reward: 15,
+    reward: 5,
     color: '#FFD700',
   },
   boss: {
@@ -98,7 +98,7 @@ export const ENEMIES: Record<EnemyType, EnemyConfig> = {
     damage: 3,
     rangedResist: 0.3,
     meleeResist: 0.3,
-    reward: 50,
+    reward: 16,
     color: '#FF0000',
     specialAbility: {
       type: 'stun',
