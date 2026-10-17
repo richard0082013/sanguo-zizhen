@@ -44,8 +44,8 @@ export class GameScene extends Phaser.Scene {
   private holdingSlotContainers: Phaser.GameObjects.Container[] = [];
   private playerAdou!: Phaser.GameObjects.Container;
   private opponentAdou!: Phaser.GameObjects.Container;
-  private playerHearts: Phaser.GameObjects.Graphics[] = [];
-  private opponentHearts: Phaser.GameObjects.Graphics[] = [];
+  private playerHearts: (Phaser.GameObjects.Image | Phaser.GameObjects.Graphics)[] = [];
+  private opponentHearts: (Phaser.GameObjects.Image | Phaser.GameObjects.Graphics)[] = [];
 
   private waveText!: Phaser.GameObjects.Text;
   private bunsText!: Phaser.GameObjects.Text;
@@ -198,9 +198,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createBackground(): void {
-    if (this.textures.exists('parchment')) {
-      const bg = this.add.image(0, 0, 'parchment');
+    if (this.textures.exists('bg_parchment')) {
+      const bg = this.add.image(0, 0, 'bg_parchment');
       bg.setOrigin(0, 0);
+      bg.setDisplaySize(GAME_CONFIG.canvasWidth, GAME_CONFIG.canvasHeight);
       bg.setDepth(0);
     } else {
       const g = this.add.graphics();
@@ -219,9 +220,10 @@ export class GameScene extends Phaser.Scene {
     const riverY = GAME_CONFIG.riverY;
     const riverH = GAME_CONFIG.riverHeight;
 
-    if (this.textures.exists('river')) {
-      const river = this.add.image(0, riverY, 'river');
+    if (this.textures.exists('bg_river')) {
+      const river = this.add.image(0, riverY, 'bg_river');
       river.setOrigin(0, 0);
+      river.setDisplaySize(GAME_CONFIG.canvasWidth, riverH);
       river.setDepth(5);
     } else {
       const g = this.add.graphics();
@@ -358,68 +360,43 @@ export class GameScene extends Phaser.Scene {
     const container = this.add.container(x, y);
     container.setDepth(15);
 
-    const scale = isOpponent ? 0.7 : 1;
+    const scale = isOpponent ? 0.6 : 0.8;
 
-    const basket = this.add.graphics();
-    basket.fillStyle(0x8b6914);
-    basket.fillEllipse(25 * scale, 35 * scale, 44 * scale, 24 * scale);
-    basket.lineStyle(2, 0x5a4510);
-    basket.strokeEllipse(25 * scale, 35 * scale, 44 * scale, 24 * scale);
-
-    basket.fillStyle(0xc4a060);
-    basket.beginPath();
-    basket.moveTo(5 * scale, 25 * scale);
-    basket.lineTo(25 * scale, 15 * scale);
-    basket.lineTo(45 * scale, 25 * scale);
-    basket.lineTo(45 * scale, 38 * scale);
-    basket.lineTo(5 * scale, 38 * scale);
-    basket.closePath();
-    basket.fillPath();
-
-    for (let i = 0; i < 5; i++) {
-      basket.lineStyle(1, 0xa08040);
-      basket.beginPath();
-      basket.moveTo((8 + i * 8) * scale, 28 * scale);
-      basket.lineTo((10 + i * 8) * scale, 18 * scale);
-      basket.strokePath();
+    if (this.textures.exists('adou')) {
+      const sprite = this.add.image(0, 0, 'adou');
+      sprite.setScale(scale);
+      sprite.setOrigin(0.5, 0.5);
+      container.add(sprite);
+    } else {
+      const basket = this.add.graphics();
+      basket.fillStyle(0x8b6914);
+      basket.fillEllipse(0, 15 * scale, 44 * scale, 24 * scale);
+      basket.fillStyle(0xffd4b8);
+      basket.fillCircle(0, -12 * scale, 12 * scale);
+      container.add(basket);
     }
 
-    const head = this.add.graphics();
-    head.fillStyle(0xffd4b8);
-    head.fillCircle(25 * scale, 8 * scale, 12 * scale);
-    head.lineStyle(1, 0xd4a088);
-    head.strokeCircle(25 * scale, 8 * scale, 12 * scale);
-
-    head.fillStyle(0x1a1a1a);
-    head.fillCircle(21 * scale, 6 * scale, 2 * scale);
-    head.fillCircle(29 * scale, 6 * scale, 2 * scale);
-
-    head.fillStyle(0xffb8a0);
-    head.fillCircle(17 * scale, 10 * scale, 2.5 * scale);
-    head.fillCircle(33 * scale, 10 * scale, 2.5 * scale);
-
-    head.lineStyle(1, 0xd4a088);
-    head.beginPath();
-    head.arc(25 * scale, 12 * scale, 3 * scale, 0, Math.PI);
-    head.strokePath();
-
-    head.fillStyle(0x3a2a1a);
-    head.fillEllipse(25 * scale, 0, 10 * scale, 4 * scale);
-
-    const label = this.add.text(25 * scale, 48 * scale, '斗', {
+    const label = this.add.text(0, 40 * scale, '斗', {
       fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: `${16 * scale}px`,
+      fontSize: `${18 * scale}px`,
       color: '#f4e8d0',
       stroke: '#3a2a1a',
       strokeThickness: 2,
     });
     label.setOrigin(0.5);
+    container.add(label);
 
-    container.add([basket, head, label]);
     return container;
   }
 
-  private createHeart(x: number, y: number, scale: number): Phaser.GameObjects.Graphics {
+  private createHeart(x: number, y: number, scale: number): Phaser.GameObjects.Image | Phaser.GameObjects.Graphics {
+    if (this.textures.exists('ui_heart')) {
+      const heart = this.add.image(x, y, 'ui_heart');
+      heart.setScale(scale);
+      heart.setDepth(16);
+      return heart;
+    }
+
     const g = this.add.graphics();
     g.setPosition(x, y);
     g.setDepth(16);
@@ -669,52 +646,51 @@ export class GameScene extends Phaser.Scene {
     const container = this.add.container(0, 0);
     container.setDepth(100);
 
-    const size = enemy.isBoss ? 36 : 28;
-    const scale = isOpponent ? 0.8 : 1;
+    const scale = isOpponent ? 0.75 : 1;
+    const size = (enemy.isBoss ? 64 : 40) * scale;
 
-    const body = this.add.graphics();
-    const color = enemy.isBoss ? 0xa44 : Phaser.Display.Color.HexStringToColor(enemy.color).color;
+    const enemyTextureMap: Record<string, string> = {
+      soldier: 'enemy_soldier',
+      archer: 'enemy_soldier',
+      cavalry: 'enemy_cavalry',
+      shield: 'enemy_shield',
+      mage: 'enemy_mage',
+      elite: 'enemy_elite',
+    };
 
-    body.fillStyle(0x222222);
-    body.fillCircle(2, 2, size / 2 * scale);
+    const textureKey = enemy.isBoss ? 'enemy_boss' : (enemyTextureMap[enemy.type] || 'enemy_soldier');
 
-    body.fillStyle(color);
-    body.fillCircle(0, 0, size / 2 * scale);
-    body.lineStyle(2, 0x111111);
-    body.strokeCircle(0, 0, size / 2 * scale);
-
-    body.fillStyle(0x1a1a1a);
-    body.fillCircle(-4 * scale, -2 * scale, 2 * scale);
-    body.fillCircle(4 * scale, -2 * scale, 2 * scale);
-
-    if (enemy.isBoss) {
-      body.fillStyle(0xffd700);
-      body.beginPath();
-      body.moveTo(0, -size / 2 * scale - 5);
-      body.lineTo(-5, -size / 2 * scale + 2);
-      body.lineTo(5, -size / 2 * scale + 2);
-      body.closePath();
-      body.fillPath();
+    if (this.textures.exists(textureKey)) {
+      const sprite = this.add.image(0, 0, textureKey);
+      sprite.setDisplaySize(size, size);
+      container.add(sprite);
+    } else {
+      const body = this.add.graphics();
+      const color = enemy.isBoss ? 0xaa4444 : Phaser.Display.Color.HexStringToColor(enemy.color).color;
+      body.fillStyle(color);
+      body.fillCircle(0, 0, size / 2);
+      body.lineStyle(2, 0x111111);
+      body.strokeCircle(0, 0, size / 2);
+      container.add(body);
     }
 
-    const charText = this.add.text(0, 2 * scale, enemy.char, {
+    const charText = this.add.text(0, size / 2 + 4, enemy.char, {
       fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: `${14 * scale}px`,
+      fontSize: `${12 * scale}px`,
       color: '#fff',
       stroke: '#000',
       strokeThickness: 2,
     });
-    charText.setOrigin(0.5);
+    charText.setOrigin(0.5, 0);
+    container.add(charText);
 
     const healthBg = this.add.graphics();
     healthBg.fillStyle(0x333333);
-    healthBg.fillRect(-16, -23, 32, 7);
-
+    healthBg.fillRect(-size / 2, -size / 2 - 8, size, 6);
     const healthBar = this.add.graphics();
     healthBar.fillStyle(0x4caf50);
-    healthBar.fillRect(-15, -22, 30, 5);
-
-    container.add([body, charText, healthBg, healthBar]);
+    healthBar.fillRect(-size / 2 + 1, -size / 2 - 7, size - 2, 4);
+    container.add(healthBar);
 
     return { container, healthBar, healthBg, charText, id: enemy.id };
   }
@@ -780,52 +756,56 @@ export class GameScene extends Phaser.Scene {
 
   private createTileSprite(tile: TileState, isOpponent: boolean): TileSprite {
     const scale = isOpponent ? GAME_CONFIG.opponentBoardScale : 1;
-    const size = (GAME_CONFIG.cellSize - 6) * scale;
+    const size = (GAME_CONFIG.cellSize - 4) * scale;
 
     const container = this.add.container(0, 0);
     container.setDepth(100);
 
-    const levelColors: Record<number, { bg: number; border: number; glow: number }> = {
-      1: { bg: 0xf8f4e8, border: 0xc8c0b0, glow: 0xffffff },
-      2: { bg: 0x90c878, border: 0x608848, glow: 0xaaffaa },
-      3: { bg: 0x70a8d8, border: 0x4878a8, glow: 0xaaddff },
-      4: { bg: 0xb888c8, border: 0x8858a8, glow: 0xddaaff },
-      5: { bg: 0xf8c040, border: 0xc89020, glow: 0xffdd88 },
+    const tileTextures: Record<number, string> = {
+      1: 'tile_white',
+      2: 'tile_green',
+      3: 'tile_blue',
+      4: 'tile_purple',
+      5: 'tile_gold',
     };
 
-    const colors = levelColors[tile.level] || levelColors[1];
+    const textureKey = tileTextures[tile.level] || 'tile_white';
+    const isGeneral = tile.type === 'general' && tile.generalId;
 
-    const shadow = this.add.graphics();
-    shadow.fillStyle(0x222222, 0.4);
-    shadow.fillRoundedRect(3, 3, size, size, 4);
+    if (this.textures.exists(textureKey)) {
+      const tileImg = this.add.image(0, 0, isGeneral ? 'tile_general_frame' : textureKey);
+      tileImg.setDisplaySize(size, size);
+      container.add(tileImg);
 
-    const bg = this.add.graphics();
-    bg.fillStyle(colors.bg);
-    bg.fillRoundedRect(0, 0, size, size, 4);
-    bg.lineStyle(2, colors.border);
-    bg.strokeRoundedRect(0, 0, size, size, 4);
+      if (isGeneral) {
+        const generalKey = `general_${tile.generalId}`;
+        if (this.textures.exists(generalKey)) {
+          const portrait = this.add.image(0, -4, generalKey);
+          portrait.setDisplaySize(size * 0.7, size * 0.7);
+          container.add(portrait);
+        }
+      }
+    } else {
+      const bg = this.add.graphics();
+      bg.fillStyle(0xf8f4e8);
+      bg.fillRoundedRect(-size / 2, -size / 2, size, size, 4);
+      bg.lineStyle(2, 0xc8c0b0);
+      bg.strokeRoundedRect(-size / 2, -size / 2, size, size, 4);
+      container.add(bg);
+    }
 
-    bg.lineStyle(1, 0xffffff, 0.4);
-    bg.beginPath();
-    bg.moveTo(4, 2);
-    bg.lineTo(size - 4, 2);
-    bg.strokePath();
-    bg.beginPath();
-    bg.moveTo(2, 4);
-    bg.lineTo(2, size - 4);
-    bg.strokePath();
-
-    const charText = this.add.text(size / 2, size / 2, tile.char, {
+    const charText = this.add.text(0, isGeneral ? 12 : 0, tile.char, {
       fontFamily: GAME_CONFIG.typography.brush,
-      fontSize: `${22 * scale}px`,
+      fontSize: `${isGeneral ? 14 : 24}px`,
       color: '#1a1a1a',
       stroke: '#fff',
-      strokeThickness: 1,
+      strokeThickness: 2,
     });
     charText.setOrigin(0.5);
+    container.add(charText);
 
-    if (tile.level > 1) {
-      const levelText = this.add.text(size - 4, size - 4, `${tile.level}`, {
+    if (tile.level > 1 && !isGeneral) {
+      const levelText = this.add.text(size / 2 - 4, size / 2 - 4, `${tile.level}`, {
         fontFamily: GAME_CONFIG.typography.ui,
         fontSize: `${10 * scale}px`,
         color: '#fff',
@@ -836,7 +816,6 @@ export class GameScene extends Phaser.Scene {
       container.add(levelText);
     }
 
-    container.add([shadow, bg, charText]);
     container.setSize(size, size);
 
     return { container, id: tile.id };

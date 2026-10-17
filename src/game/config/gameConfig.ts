@@ -56,6 +56,56 @@ export const GAME_CONFIG = {
     { col: 0, row: 1 },
   ],
 
+  assets: {
+    backgrounds: {
+      parchment: '/assets/backgrounds/parchment.webp',
+      river: '/assets/backgrounds/river.webp',
+    },
+    adou: '/assets/backgrounds/adou.webp',
+    tiles: {
+      white: '/assets/tiles/tile_white.webp',
+      green: '/assets/tiles/tile_green.webp',
+      blue: '/assets/tiles/tile_blue.webp',
+      purple: '/assets/tiles/tile_purple.webp',
+      gold: '/assets/tiles/tile_gold.webp',
+      generalFrame: '/assets/tiles/tile_general_frame.webp',
+    },
+    enemies: {
+      soldier: '/assets/enemies/enemy_soldier.webp',
+      cavalry: '/assets/enemies/enemy_cavalry.webp',
+      shield: '/assets/enemies/enemy_shield.webp',
+      mage: '/assets/enemies/enemy_mage.webp',
+      elite: '/assets/enemies/enemy_elite.webp',
+      boss: '/assets/enemies/enemy_boss.webp',
+    },
+    generals: {
+      zhaoyun: '/assets/generals/general_zhaoyun.webp',
+      zhangfei: '/assets/generals/general_zhangfei.webp',
+      guanyu: '/assets/generals/general_guanyu.webp',
+      huangzhong: '/assets/generals/general_huangzhong.webp',
+      zhugeliang: '/assets/generals/general_zhugeliang.webp',
+      liubei: '/assets/generals/general_liubei.webp',
+      caocao: '/assets/generals/general_caocao.webp',
+      dianwei: '/assets/generals/general_dianwei.webp',
+      xiahoudun: '/assets/generals/general_xiahoudun.webp',
+      zhouyu: '/assets/generals/general_zhouyu.webp',
+      sunshangxiang: '/assets/generals/general_sunshangxiang.webp',
+      lvbu: '/assets/generals/general_lvbu.webp',
+    },
+    vfx: {
+      fireDragon: '/assets/vfx/vfx_fire_dragon.webp',
+      flameBurst: '/assets/vfx/vfx_flame_burst.webp',
+      inkSplash: '/assets/vfx/vfx_ink_splash.webp',
+      lightning: '/assets/vfx/vfx_lightning.webp',
+      slash: '/assets/vfx/vfx_slash.webp',
+    },
+    ui: {
+      button: '/assets/ui/ui_button.webp',
+      mantou: '/assets/ui/ui_mantou.webp',
+      heart: '/assets/ui/ui_heart.webp',
+    },
+  },
+
   holdingSlots: 5,
 
   initialBuns: 30,
