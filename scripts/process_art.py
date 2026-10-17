@@ -61,6 +61,21 @@ ART_MAPPING = {
     "art_37.jpg": {"name": "ui_heart", "bg": "green", "size": (24, 24)},
 }
 
+def detect_background_color(img_array: np.ndarray) -> np.ndarray:
+    """
+    Auto-detect background color from corner pixels.
+    """
+    h, w = img_array.shape[:2]
+    corners = [
+        img_array[0, 0],
+        img_array[0, w-1],
+        img_array[h-1, 0],
+        img_array[h-1, w-1],
+        img_array[0, w//2],
+        img_array[h-1, w//2],
+    ]
+    return np.median(corners, axis=0).astype(np.uint8)
+
 def soft_chroma_key(img_array: np.ndarray, key_color: np.ndarray, 
                     tolerance: float = 40, edge_softness: float = 15) -> np.ndarray:
     """
@@ -140,9 +155,11 @@ def process_image(input_path: Path, config: dict) -> Image.Image:
         return img.resize(target_size, Image.Resampling.LANCZOS).convert("RGBA")
     
     if bg_type == "magenta":
-        key_color = MAGENTA_KEY
+        key_color = detect_background_color(img_array)
+        print(f"    Auto-detected bg color: {key_color}")
     elif bg_type == "green":
-        key_color = GREEN_KEY
+        key_color = detect_background_color(img_array)
+        print(f"    Auto-detected bg color: {key_color}")
     elif bg_type == "black":
         alpha = np.max(img_array, axis=2).astype(np.float32) / 255.0
         rgba = np.dstack([img_array, (alpha * 255).astype(np.uint8)])
@@ -160,7 +177,7 @@ def process_image(input_path: Path, config: dict) -> Image.Image:
     else:
         return img.resize(target_size, Image.Resampling.LANCZOS).convert("RGBA")
     
-    alpha = soft_chroma_key(img_array, key_color, tolerance=50, edge_softness=20)
+    alpha = soft_chroma_key(img_array, key_color, tolerance=60, edge_softness=25)
     
     rgb = despill(img_array, key_color, alpha)
     
@@ -215,7 +232,7 @@ def main():
             result.save(output_path, "PNG", optimize=True)
             
             webp_path = output_path.with_suffix(".webp")
-            result.save(webp_path, "WebP", quality=90)
+            result.save(webp_path, "WebP", lossless=True)
             
         except Exception as e:
             print(f"Error processing {filename}: {e}")

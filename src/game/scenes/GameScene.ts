@@ -625,12 +625,21 @@ export class GameScene extends Phaser.Scene {
       }
 
       const worldPos = this.getEnemyWorldPosition(enemy, isOpponent);
-      sprite.container.setPosition(worldPos.x, worldPos.y);
+      const scale = isOpponent ? 0.75 : 1;
+      const size = (enemy.isBoss ? 64 : 40) * scale;
+
+      const bobOffset = Math.sin(this.time.now * 0.008 + enemy.pathIndex * 2) * 3;
+      const squash = 1 + Math.sin(this.time.now * 0.01 + enemy.pathIndex) * 0.05;
+      sprite.container.setPosition(worldPos.x, worldPos.y + bobOffset);
+      sprite.container.setScale(squash, 1 / squash);
 
       const healthPercent = enemy.health / enemy.maxHealth;
       sprite.healthBar.clear();
+      sprite.healthBg.clear();
+      sprite.healthBg.fillStyle(0x333333);
+      sprite.healthBg.fillRect(-size / 2, -size / 2 - 8, size, 6);
       sprite.healthBar.fillStyle(healthPercent > 0.3 ? 0x4caf50 : 0xf44336);
-      sprite.healthBar.fillRect(-15, -22, 30 * healthPercent, 5);
+      sprite.healthBar.fillRect(-size / 2 + 1, -size / 2 - 7, (size - 2) * healthPercent, 4);
     });
 
     spriteMap.forEach((sprite, id) => {
@@ -687,6 +696,8 @@ export class GameScene extends Phaser.Scene {
     const healthBg = this.add.graphics();
     healthBg.fillStyle(0x333333);
     healthBg.fillRect(-size / 2, -size / 2 - 8, size, 6);
+    container.add(healthBg);
+
     const healthBar = this.add.graphics();
     healthBar.fillStyle(0x4caf50);
     healthBar.fillRect(-size / 2 + 1, -size / 2 - 7, size - 2, 4);
