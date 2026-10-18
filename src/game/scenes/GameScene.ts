@@ -66,6 +66,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    // The camera maps the physical backing canvas onto the fixed logical board.
+    const resizeCamera = () => {
+      this.cameras.main.setViewport(0, 0, this.scale.width, this.scale.height)
+        .setOrigin(0, 0).setZoom(this.scale.width / GAME_CONFIG.canvasWidth).setScroll(0, 0);
+    };
+    resizeCamera();
+    this.scale.on(Phaser.Scale.Events.RESIZE, resizeCamera);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
+      this.scale.off(Phaser.Scale.Events.RESIZE, resizeCamera));
+    this.sys.events.on(Phaser.Scenes.Events.ADDED_TO_SCENE, (object: Phaser.GameObjects.GameObject) => {
+      if (object instanceof Phaser.GameObjects.Text) object.setResolution(Math.min(window.devicePixelRatio || 1, 3));
+    });
     this.debugMode = new URLSearchParams(window.location.search).get('debug') === '1';
 
     this.textureGen = new TextureGenerator(this);
@@ -1222,6 +1234,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onPointerDown(pointer: Phaser.Input.Pointer): void {
+    const point = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
     if (this.phase !== 'playing') return;
 
     const state = this.engine.getState();
@@ -1236,7 +1249,7 @@ export class GameScene extends Phaser.Scene {
       if (!sprite) continue;
 
       const bounds = new Phaser.Geom.Rectangle(slotContainer.x - 25, slotContainer.y - 25, 50, 50);
-      if (bounds.contains(pointer.x, pointer.y)) {
+      if (bounds.contains(point.x, point.y)) {
         this.showRange(tile, sprite.container.x, sprite.container.y);
         this.draggingTile = sprite;
         this.dragOrigin = { x: sprite.container.x, y: sprite.container.y };
@@ -1246,7 +1259,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    if (this.selectedSlotId && this.screenToGrid(pointer.x, pointer.y)) {
+    if (this.selectedSlotId && this.screenToGrid(point.x, point.y)) {
       const sprite = this.tileSprites.get(this.selectedSlotId);
       if (sprite) {
         this.tweens.killTweensOf(sprite.container);
@@ -1262,7 +1275,7 @@ export class GameScene extends Phaser.Scene {
       if (!tile || !tile.position) continue;
 
       const bounds = sprite.container.getBounds();
-      if (bounds.contains(pointer.x, pointer.y)) {
+      if (bounds.contains(point.x, point.y)) {
         this.showRange(tile, sprite.container.x, sprite.container.y);
         this.draggingTile = sprite;
         this.dragOrigin = { x: sprite.container.x, y: sprite.container.y };
@@ -1274,17 +1287,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
+    const point = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
     if (!this.draggingTile || !this.dragOrigin) return;
 
-    this.draggingTile.container.setPosition(pointer.x, pointer.y);
+    this.draggingTile.container.setPosition(point.x, point.y);
 
     this.dragLine.clear();
     this.dragLine.lineStyle(2, 0xd4a537, 0.6);
 
     const dashLength = 8;
     const gapLength = 6;
-    const dx = pointer.x - this.dragOrigin.x;
-    const dy = pointer.y - this.dragOrigin.y;
+    const dx = point.x - this.dragOrigin.x;
+    const dy = point.y - this.dragOrigin.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     const angle = Math.atan2(dy, dx);
 
@@ -1309,6 +1323,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private highlightValidCells(pointer: Phaser.Input.Pointer): void {
+    const point = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
     const state = this.engine.getState();
     const draggingTile = state.player.tiles.find((t) => t.id === this.draggingTile?.id) ||
       state.player.holdingSlots.find((t) => t?.id === this.draggingTile?.id);
@@ -1331,7 +1346,7 @@ export class GameScene extends Phaser.Scene {
 
       const highlight = this.add.graphics();
       highlight.setDepth(110);
-      const hovered = pointer.x >= cellX && pointer.x < cellX + cellSize && pointer.y >= cellY && pointer.y < cellY + cellSize;
+      const hovered = point.x >= cellX && point.x < cellX + cellSize && point.y >= cellY && point.y < cellY + cellSize;
       highlight.setAlpha(hovered ? 1 : 0.35);
 
       if (cell.tileId) {
@@ -1359,22 +1374,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onPointerUp(pointer: Phaser.Input.Pointer): void {
+    const point = pointer.positionToCamera(this.cameras.main) as Phaser.Math.Vector2;
     if (!this.draggingTile || !this.dragOrigin) return;
 
     const tappedSlot = this.engine.getState().player.holdingSlots.some(t => t?.id === this.draggingTile!.id)
-      && Phaser.Math.Distance.Between(pointer.x, pointer.y, this.dragOrigin.x, this.dragOrigin.y) < 10;
+      && Phaser.Math.Distance.Between(point.x, point.y, this.dragOrigin.x, this.dragOrigin.y) < 10;
     this.selectedSlotId = tappedSlot ? this.draggingTile.id : null;
     this.draggingTile.container.setScale(1).setDepth(100);
     this.dragLine.clear();
     this.clearHighlights();
 
-    const gridPos = this.screenToGrid(pointer.x, pointer.y);
+    const gridPos = this.screenToGrid(point.x, point.y);
     const state = this.engine.getState();
 
     const dragged = state.player.tiles.find(t => t.id === this.draggingTile!.id);
     const target = gridPos && state.player.tiles.find(t => t.position?.row === gridPos.row && t.position?.col === gridPos.col);
     const removed = dragged && (
-      (pointer.x > 375 && pointer.y > this.holdingSlotContainers[0].y - 30 && pointer.y < this.holdingSlotContainers[0].y + 35 && this.engine.discardTile(dragged.id)) ||
+      (point.x > 375 && point.y > this.holdingSlotContainers[0].y - 30 && point.y < this.holdingSlotContainers[0].y + 35 && this.engine.discardTile(dragged.id)) ||
       (dragged.type === 'shovel' && target && this.engine.useShovel(dragged.id, target.id)));
     if (removed) {
       this.draggingTile.container.destroy();

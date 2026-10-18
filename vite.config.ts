@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 
-export default defineConfig({
-  base: './',
+export default defineConfig(({ command }) => ({
+  base: command === 'build' ? '/sanguo-zizhen/' : '/',
   build: {
     outDir: 'dist',
     sourcemap: true,
@@ -10,4 +10,4 @@ export default defineConfig({
     host: true,
     port: 5173,
   },
-});
+}));
